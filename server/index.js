@@ -10,6 +10,7 @@ import { scanRoot, scanProject, listDirs } from './scanner.js';
 import * as runner from './runner.js';
 import * as portsMod from './ports.js';
 import * as state from './state.js';
+import { depFileFor, hasVenv, venvName, depsSatisfied } from './venv.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const HOST = '127.0.0.1';
@@ -64,16 +65,46 @@ api.get('/projects', async (req, res) => {
   const runningList = runner.listRunning().filter(r => !r.exited);
   const savedPorts = state.get().ports;
 
+  await Promise.all(projects.map(async p => {
+    if (!p.stacks?.includes('Python')) return;
+    const depFile = depFileFor(p);
+    if (!depFile) return;
+    const venvExists = hasVenv(p);
+    let depsOk = null;
+    if (venvExists) depsOk = await depsSatisfied(p);
+    p.deps = { file: depFile.kind, venvName: venvName(p), venvExists, depsOk };
+  }));
+
   res.json({
     scanRoot: state.get().scanRoot,
     listening,
     running: runningList,
+    setups: runner.listSetups(),
     projects: projects.map(p => ({
       ...p,
       status: runningList.find(r => r.path === p.path) ? 'running' : 'stopped',
       chosenPort: savedPorts[p.name] ?? null
     }))
   });
+});
+
+api.post('/projects/:name/setup', async (req, res) => {
+  const project = findProject(req.params.name);
+  if (!project) return res.status(404).json({ error: `Project "${req.params.name}" tidak ditemukan di folder scan` });
+  if (!project.stacks?.includes('Python')) {
+    return res.status(400).json({ error: 'Setup venv hanya untuk project Python' });
+  }
+  const depFile = depFileFor(project);
+  if (!depFile && hasVenv(project)) {
+    return res.status(400).json({ error: `Tidak ada file dependencies dan venv sudah ada` });
+  }
+  try {
+    const setup = runner.startSetup(project);
+    broadcast({ type: 'status', name: project.name, data: setup });
+    res.json({ ok: true, setup });
+  } catch (e) {
+    res.status(409).json({ error: e.message });
+  }
 });
 
 api.post('/projects/:name/start', async (req, res) => {
@@ -86,6 +117,15 @@ api.post('/projects/:name/start', async (req, res) => {
 
   const isDocker = recipe.type === 'docker';
   const hasPublishedPorts = isDocker && Array.isArray(recipe.mappings) && recipe.mappings.length > 0;
+
+  if (!isDocker && ['flask-cli', 'python-env', 'uvicorn-env'].includes(recipe.type)) {
+    const depFile = depFileFor(project);
+    if (depFile && !hasVenv(project)) {
+      return res.status(400).json({
+        error: `Dependencies Python (${depFile.kind}) belum disiapkan — klik tombol 🛠 Setup untuk membuat venv ${venvName(project)} dan menginstalnya`
+      });
+    }
+  }
 
   let port = parseInt(req.body?.port, 10);
   if (!hasPublishedPorts && isDocker) port = null;
@@ -162,6 +202,7 @@ function broadcast(msg) {
 }
 
 runner.setOnLog((name, lines) => broadcast({ type: 'log', name, lines }));
+runner.setOnSetupEnd((name) => broadcast({ type: 'status', name }));
 
 const wss = new WebSocketServer({ noServer: true });
 wss.on('connection', (ws) => {

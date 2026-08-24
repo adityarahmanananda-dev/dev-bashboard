@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import * as docker from './docker.js';
+import { buildSetupSteps, venvName } from './venv.js';
 
 const LOG_DIR = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', 'data', 'logs');
 const MAX_LOG_LINES = 800;
@@ -114,7 +115,13 @@ function buildStartArgs(recipe, port) {
   return { argv, env };
 }
 
+let onSetupEnd = null;
+export function setOnSetupEnd(fn) {
+  onSetupEnd = fn;
+}
+
 function entryIsRunning(e) {
+  if (e.kind === 'setup') return !e.exited;
   if (e.kind === 'docker') return !e.exited && !e.stopping;
   return !e.exited;
 }
@@ -298,9 +305,111 @@ export function refreshActualPorts(byPgid) {
   }
 }
 
+export function getSetup(projectPath) {
+  return running.get('setup:' + projectPath) || null;
+}
+
+export function startSetup(project) {
+  const key = 'setup:' + project.path;
+  if (running.has(key)) throw new Error('Setup untuk project ini sedang berjalan');
+
+  const steps = buildSetupSteps(project);
+  if (!steps.length) throw new Error(`Tidak ada file dependencies (requirements.txt / pyproject.toml) di ${project.name}`);
+
+  try { fs.mkdirSync(LOG_DIR, { recursive: true }); fs.writeFileSync(logFile(project.name), ''); } catch {}
+
+  const entry = {
+    kind: 'setup',
+    name: project.name,
+    path: project.path,
+    cwd: project.path,
+    port: null,
+    pid: null,
+    pgid: null,
+    startedAt: Date.now(),
+    exited: false,
+    exitCode: null,
+    stepIndex: -1,
+    steps: steps.map(s => s.label),
+    lines: [],
+    proc: null
+  };
+  running.set(key, entry);
+
+  const runNext = () => {
+    entry.stepIndex++;
+    if (entry.stepIndex >= steps.length) {
+      entry.exited = true;
+      entry.exitCode = 0;
+      appendLog(entry, [`[setup] SELESAI ✓ — venv ${venvName(project)} siap dipakai`]);
+      onSetupEnd?.(project.name, true);
+      return;
+    }
+    const step = steps[entry.stepIndex];
+    appendLog(entry, [
+      `[setup] langkah ${entry.stepIndex + 1}/${steps.length}: ${step.label}`,
+      `$ ${step.argv.join(' ')}`
+    ]);
+    const child = spawn(step.argv[0], step.argv.slice(1), {
+      cwd: project.path,
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    entry.pid = child.pid;
+    entry.pgid = -child.pid;
+    const onData = buf => appendLog(entry, buf.toString().split('\n').filter(Boolean).slice(0, 200));
+    child.stdout.on('data', onData);
+    child.stderr.on('data', onData);
+    child.on('error', err => {
+      appendLog(entry, [`[setup] gagal spawn: ${err.message}`]);
+      entry.exited = true;
+      entry.exitCode = 1;
+      onSetupEnd?.(project.name, false);
+    });
+    child.on('exit', code => {
+      if (entry.exited) return;
+      if (code === 0) runNext();
+      else {
+        entry.exited = true;
+        entry.exitCode = code;
+        appendLog(entry, [`[setup] GAGAL di langkah "${step.label}" (exit ${code}) — periksa log di atas`]);
+        onSetupEnd?.(project.name, false);
+      }
+    });
+  };
+  runNext();
+  return serialize(entry);
+}
+
+export function listSetups() {
+  return [...running.values()]
+    .filter(e => e.kind === 'setup')
+    .map(e => ({
+      ...serialize(e),
+      state: e.exited ? (e.exitCode === 0 ? 'done' : 'failed') : 'running',
+      progress: `${Math.min(e.stepIndex + (e.exited ? 1 : 1), e.steps.length)}/${e.steps.length}`
+    }));
+}
+
 export function stop(projectPath) {
-  const entry = running.get(projectPath);
+  const entry = running.get(projectPath) || running.get('setup:' + projectPath);
   if (!entry) return false;
+
+  if (entry.kind === 'setup') {
+    const key = 'setup:' + entry.path;
+    if (!entry.pid || entry.exited) {
+      running.delete(key);
+      return true;
+    }
+    const victims = collectVictims(entry.pid, Math.abs(entry.pgid));
+    for (const p of victims) { try { process.kill(p, 'SIGKILL'); } catch {} }
+    appendLog(entry, ['[setup] dibatalkan oleh user']);
+    entry.exited = true;
+    entry.exitCode = 130;
+    onSetupEnd?.(entry.name, false);
+    running.delete(key);
+    return true;
+  }
 
   if (entry.kind === 'docker') {
     if (entry.stopping || entry.building) return false;
@@ -369,7 +478,7 @@ export async function getLogsFor(name, projectPath) {
 }
 
 export function listRunning() {
-  return [...running.values()].filter(entryIsRunning).map(serialize);
+  return [...running.values()].filter(e => e.kind !== 'setup' && entryIsRunning(e)).map(serialize);
 }
 
 export function anyEntryAt(projectPath) {
@@ -420,7 +529,7 @@ export async function adoptPersisted(saved) {
 
 export function persistable() {
   return [...running.values()]
-    .filter(e => !e.exited)
+    .filter(e => e.kind !== 'setup' && !e.exited)
     .map(({ kind, name, path, cwd, port, pid, pgid, startedAt, actualPorts }) => ({
       kind,
       name,

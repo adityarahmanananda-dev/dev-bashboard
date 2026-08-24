@@ -6,6 +6,7 @@ const state = {
   listening: [],
   running: [],
   reserved: [],
+  setups: [],
   logProject: null,
   logs: {}
 };
@@ -43,6 +44,7 @@ async function refresh() {
     state.scanRoot = data.scanRoot;
     state.listening = data.listening;
     state.running = data.running;
+    state.setups = data.setups || [];
     render();
   } catch (e) {
     toast(`Gagal scan: ${e.message}`, 'error');
@@ -99,6 +101,18 @@ function renderCard(p) {
     })
     .join('');
 
+  const setupInfo = state.setups.find(s => s.path === p.path);
+  const setupRunning = !!setupInfo && !setupInfo.exited;
+
+  let depsNote = '';
+  if (p.deps) {
+    const parts = [`🐍 <b>${esc(p.deps.file)}</b>`];
+    parts.push(p.deps.venvExists ? `venv <b>${esc(p.deps.venvName)}</b> siap` : `venv <b>${esc(p.deps.venvName)}</b> belum ada`);
+    if (p.deps.venvExists) parts.push(p.deps.depsOk ? 'deps ✓' : 'deps ✗ belum lengkap');
+    if (setupRunning) parts.push(`⟳ setup ${setupInfo.progress || ''}`);
+    depsNote = `<div class="detected-note">${parts.join(' · ')}</div>`;
+  }
+
   let portNote = '';
   if (p.runnable && isDocker) {
     const maps = (p.recipe.mappings || []).map(m => `${m.hostPort}→${m.containerPort}`).join(', ');
@@ -121,6 +135,7 @@ function renderCard(p) {
     <div class="card-desc" title="${esc(p.description || '')}">${esc(p.description || '')}</div>
     <div class="badges">${badges}</div>
     ${dbBadges ? `<div class="badges">${dbBadges}</div>` : ''}
+    ${depsNote}
     ${portNote}
     ${isRunning ? `
       <div class="port-row">
@@ -139,10 +154,13 @@ function renderCard(p) {
       <div class="conflict-msg" hidden></div>
     `}
     <div class="card-actions">
+      ${setupRunning ? `<button class="btn btn-danger" data-stop="${esc(p.name)}">■ Stop Setup</button>` : ''}
       ${isRunning
         ? `<button class="btn btn-danger" data-stop="${esc(p.name)}">■ Stop</button>`
-        : `<button class="btn btn-primary" data-start="${esc(p.name)}">▶ Start${isDocker ? ' (Docker)' : ''}</button>
-           ${p.altRecipe ? `<button class="btn" title="Jalan tanpa docker: ${esc(p.altRecipe.argv.join(' '))}" data-native="${esc(p.name)}">⚡ Native</button>` : ''}`}
+        : `${!setupRunning ? `<button class="btn btn-primary" data-start="${esc(p.name)}">▶ Start${isDocker ? ' (Docker)' : ''}</button>` : ''}
+           ${!setupRunning && p.altRecipe ? `<button class="btn" title="Jalan tanpa docker: ${esc(p.altRecipe.argv.join(' '))}" data-native="${esc(p.name)}">⚡ Native</button>` : ''}`}
+      ${p.deps && (!p.deps.venvExists || p.deps.depsOk === false)
+        ? `<button class="btn" data-setup="${esc(p.name)}" ${setupRunning ? 'disabled' : ''}>${setupRunning ? '⏳ Setup…' : '🛠 Setup'}</button>` : ''}
       <button class="btn btn-ghost" data-logs="${esc(p.name)}">▤ Log</button>
       ${isRunning ? `<a class="btn btn-ghost" href="http://127.0.0.1:${currentPort}" target="_blank" rel="noopener">↗ Buka</a>` : ''}
     </div>
@@ -220,6 +238,17 @@ async function stopProject(name) {
   try {
     await api(`/projects/${encodeURIComponent(name)}/stop`, { method: 'POST' });
     toast(`${name} dihentikan`);
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+  await refresh();
+}
+
+async function setupProject(name) {
+  try {
+    await api(`/projects/${encodeURIComponent(name)}/setup`, { method: 'POST' });
+    toast(`Setup ${name} dimulai — venv + install dependencies`);
+    openLogs(name);
   } catch (e) {
     toast(e.message, 'error');
   }
@@ -305,11 +334,12 @@ function connectWs() {
 /* ---------- events ---------- */
 
 document.addEventListener('click', (e) => {
-  const t = e.target.closest('[data-start],[data-stop],[data-suggest],[data-logs],[data-nav],[data-native]');
+  const t = e.target.closest('[data-start],[data-stop],[data-suggest],[data-logs],[data-nav],[data-native],[data-setup]');
   if (!t) return;
   if (t.dataset.start) startProject(t.dataset.start);
   else if (t.dataset.native) startProject(t.dataset.native, true);
   else if (t.dataset.stop) stopProject(t.dataset.stop);
+  else if (t.dataset.setup && !t.disabled) setupProject(t.dataset.setup);
   else if (t.dataset.suggest) suggestPort(t.dataset.suggest);
   else if (t.dataset.logs) openLogs(t.dataset.logs);
   else if (t.dataset.nav) browse(t.dataset.nav);

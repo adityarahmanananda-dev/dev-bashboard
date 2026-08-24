@@ -38,11 +38,12 @@ function readDescription(dir) {
 }
 
 function findVenv(dir) {
-  for (const name of fs.readdirSync(dir)) {
+  const preferred = `${path.basename(dir)}.venv`;
+  for (const name of [preferred, ...fs.readdirSync(dir)]) {
     const binPython = path.join(dir, name, 'bin', 'python');
     const isDir = (() => { try { return fs.statSync(path.join(dir, name)).isDirectory(); } catch { return false; } })();
     if (isDir && exists(binPython)) {
-      if (name === 'venv' || name === '.venv' || /env|venv/i.test(name)) return name;
+      if (name === preferred || name === 'venv' || name === '.venv' || /env|venv/i.test(name)) return name;
     }
   }
   return null;
