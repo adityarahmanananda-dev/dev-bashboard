@@ -1,0 +1,379 @@
+import { spawn } from 'child_process';
+import { execSync } from 'child_process';
+import path from 'path';
+import fs from 'fs';
+import * as docker from './docker.js';
+
+const LOG_DIR = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', 'data', 'logs');
+const MAX_LOG_LINES = 800;
+const STOP_GRACE_MS = 5000;
+
+const running = new Map();
+
+let onLog = null;
+export function setOnLog(fn) {
+  onLog = fn;
+}
+
+function logFile(name) {
+  return path.join(LOG_DIR, `${name.replace(/[^a-zA-Z0-9._-]/g, '_')}.log`);
+}
+
+function appendLog(entry, lines) {
+  entry.lines.push(...lines);
+  if (entry.lines.length > MAX_LOG_LINES) entry.lines.splice(0, entry.lines.length - MAX_LOG_LINES);
+  try { fs.appendFileSync(logFile(entry.name), lines.join('\n') + '\n'); } catch {}
+  try { onLog?.(entry.name, lines); } catch {}
+}
+
+function pgidAlive(pgid) {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch (e) {
+    return e.code === 'EPERM';
+  }
+}
+
+function loadDotEnv(cwd) {
+  const env = {};
+  try {
+    const txt = fs.readFileSync(path.join(cwd, '.env'), 'utf8');
+    for (const line of txt.split('\n')) {
+      if (/^\s*#/.test(line)) continue;
+      const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+      if (m) env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+    }
+  } catch {}
+  return env;
+}
+
+function buildStartArgs(recipe, port) {
+  const argv = [...recipe.argv];
+  let env = {};
+  switch (recipe.portMode) {
+    case 'arg':
+      argv.push('--port', String(port));
+      break;
+    case 'arg-static':
+      argv.push(String(port), '--bind', '127.0.0.1');
+      break;
+    case 'env:PORT':
+      env.PORT = String(port);
+      env.APP_PORT = String(port);
+      break;
+    case 'env:ADDR':
+      env.ADDR = `:${port}`;
+      break;
+    default:
+      break;
+  }
+  return { argv, env };
+}
+
+function entryIsRunning(e) {
+  if (e.kind === 'docker') return !e.exited && !e.stopping;
+  return !e.exited;
+}
+
+function resolveRecipe(project, native) {
+  if (native && project.altRecipe) return { recipe: project.altRecipe, isAlt: true };
+  return { recipe: project.recipe, isAlt: false };
+}
+
+export function start(project, port, opts = {}) {
+  const { recipe } = resolveRecipe(project, opts.native);
+  if (!recipe) throw new Error('Project tidak bisa dijalankan (tidak ada start command)');
+  if ([...running.values()].some(e => e.path === project.path && entryIsRunning(e))) {
+    throw new Error(`Project "${project.name}" sudah berjalan`);
+  }
+
+  const name = project.name;
+
+  if (recipe.type === 'docker') {
+    return startDocker(project, recipe, port);
+  }
+
+  let useRecipe = recipe;
+  let entryNote = null;
+  if (recipe.type === 'flask-cli') {
+    const binPath = path.resolve(recipe.cwd, recipe.argv[0]);
+    if (recipe.argv[0] !== 'flask' && !fs.existsSync(binPath)) {
+      let globalFlask = null;
+      try { globalFlask = execSync('command -v flask', { encoding: 'utf8' }).trim(); } catch {}
+      if (globalFlask) {
+        useRecipe = { ...recipe, argv: ['flask', ...recipe.argv.slice(1)] };
+      } else if (recipe.fallbackArgv) {
+        useRecipe = { type: 'python-fixed', argv: recipe.fallbackArgv, portMode: 'none', cwd: recipe.cwd };
+        entryNote = 'flask CLI tidak tersedia; port mengikuti kode app (tidak bisa dioverride)';
+      }
+    }
+  }
+
+  let { argv, env } = buildStartArgs(useRecipe, port);
+  env = { ...loadDotEnv(useRecipe.cwd), ...env };
+
+  try { fs.mkdirSync(LOG_DIR, { recursive: true }); fs.writeFileSync(logFile(name), ''); } catch {}
+
+  const child = spawn(argv[0], argv.slice(1), {
+    cwd: useRecipe.cwd,
+    env: { ...process.env, ...env },
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  const entry = {
+    kind: 'native',
+    name,
+    path: project.path,
+    cwd: useRecipe.cwd,
+    mode: opts.native ? 'native' : 'default',
+    port,
+    pid: child.pid,
+    pgid: -child.pid,
+    startedAt: Date.now(),
+    exited: false,
+    exitCode: null,
+    lines: [],
+    proc: child
+  };
+  running.set(project.path, entry);
+
+  const onData = (buf) => appendLog(entry, buf.toString().split('\n').filter(Boolean));
+  child.stdout.on('data', onData);
+  child.stderr.on('data', onData);
+
+  child.on('exit', (code, signal) => {
+    entry.exited = true;
+    entry.exitCode = code;
+    entry.signal = signal;
+    appendLog(entry, [`[dashboard] proses keluar (code=${code ?? '-'}${signal ? `, signal=${signal}` : ''})`]);
+    setTimeout(() => {
+      if (running.get(project.path) === entry) running.delete(project.path);
+    }, 1500);
+  });
+  child.on('error', (err) => {
+    appendLog(entry, [`[dashboard] gagal spawn: ${err.message}`]);
+  });
+
+  appendLog(entry, [
+    `[dashboard] start: ${argv.join(' ')}`,
+    `[dashboard] port diminta: ${port}${Object.keys(env).length ? `, env tambahan: ${JSON.stringify(env)}` : ''}`,
+    ...(entryNote ? [`[dashboard] catatan: ${entryNote}`] : [])
+  ]);
+
+  return serialize(entry);
+}
+
+function startDocker(project, recipe, port) {
+  const name = project.name;
+  const hasPorts = Array.isArray(recipe.mappings) && recipe.mappings.length > 0;
+  const desiredPort = hasPorts ? port : null;
+  const { args, overrideFile, finalHostPort } = docker.buildUpArgs({
+    projectName: name,
+    cwd: recipe.cwd,
+    composeFile: recipe.composeFile,
+    mappings: recipe.mappings,
+    desiredPort
+  });
+
+  try { fs.mkdirSync(LOG_DIR, { recursive: true }); fs.writeFileSync(logFile(name), ''); } catch {}
+
+  const child = spawn('docker', args, {
+    cwd: recipe.cwd,
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  const entry = {
+    kind: 'docker',
+    name,
+    path: project.path,
+    cwd: recipe.cwd,
+    composeFile: recipe.composeFile,
+    mode: 'default',
+    port: finalHostPort,
+    pid: child.pid,
+    startedAt: Date.now(),
+    live: false,
+    building: true,
+    exited: false,
+    exitCode: null,
+    lines: [],
+    proc: child
+  };
+  running.set(project.path, entry);
+
+  const onData = (buf) => appendLog(entry, buf.toString().split('\n').filter(Boolean).slice(0, 40));
+  child.stdout.on('data', onData);
+  child.stderr.on('data', onData);
+
+  child.on('exit', (code) => {
+    entry.building = false;
+    if (code === 0) {
+      entry.live = true;
+      appendLog(entry, ['[dashboard] container berjalan di background (detached)']);
+    } else {
+      entry.exited = true;
+      entry.exitCode = code;
+      appendLog(entry, [`[dashboard] docker compose gagal (exit ${code}), lihat log di atas`]);
+      setTimeout(() => {
+        if (running.get(project.path) === entry) running.delete(project.path);
+      }, 1500);
+    }
+  });
+  child.on('error', (err) => {
+    entry.building = false;
+    entry.exited = true;
+    appendLog(entry, [`[dashboard] gagal jalankan docker: ${err.message}`]);
+  });
+
+  appendLog(entry, [
+    `[dashboard] start (docker compose): docker ${args.join(' ')}`,
+    ...(overrideFile ? [`[dashboard] override port host -> ${desiredPort} (${overrideFile})`] : []),
+    ...(!hasPorts && port ? [`[dashboard] catatan: compose tidak mempublikasi port apa pun; permintaan port ${port} diabaikan`] : [])
+  ]);
+
+  return serialize(entry);
+}
+
+export async function reconcileDocker() {
+  for (const entry of [...running.values()]) {
+    if (entry.kind !== 'docker' || entry.building || entry.stopping) continue;
+    const alive = await docker.isRunning(entry.name, entry.cwd);
+    if (!alive) running.delete(entry.path);
+    else entry.live = true;
+  }
+}
+
+export function stop(projectPath) {
+  const entry = running.get(projectPath);
+  if (!entry) return false;
+
+  if (entry.kind === 'docker') {
+    if (entry.stopping || entry.building) return false;
+    entry.stopping = true;
+    appendLog(entry, ['[dashboard] docker compose down…']);
+    docker.down(entry.name, entry.cwd).then((res) => {
+      appendLog(entry, res.output ? res.output.split('\n') : ['[dashboard] container dihentikan']);
+      running.delete(projectPath);
+      onLog?.(entry.name, ['[dashboard] project dihentikan']);
+    });
+    return true;
+  }
+
+  try { process.kill(-entry.pgid, 'SIGTERM'); } catch {}
+  const deadline = Date.now() + STOP_GRACE_MS;
+  const timer = setInterval(() => {
+    if (!pgidAlive(entry.pgid)) {
+      clearInterval(timer);
+      running.delete(projectPath);
+    } else if (Date.now() > deadline) {
+      clearInterval(timer);
+      try { process.kill(-entry.pgid, 'SIGKILL'); } catch {}
+      running.delete(projectPath);
+    }
+  }, 300);
+
+  appendLog(entry, ['[dashboard] menerima perintah stop…']);
+  return true;
+}
+
+export function get(projectPath) {
+  const e = running.get(projectPath);
+  return e ? serialize(e) : null;
+}
+
+export function findEntryByName(name) {
+  return [...running.values()].find(e => e.name === name) || null;
+}
+
+export function getLogs(projectPath) {
+  const e = running.get(projectPath);
+  return e ? e.lines : [];
+}
+
+export async function getLogsFor(name, projectPath) {
+  const e = findEntryByName(name);
+  if (!e) return [];
+  if (e.kind === 'docker') {
+    const lines = await docker.fetchLogs(e.name, e.cwd);
+    return lines.slice(-MAX_LOG_LINES);
+  }
+  return e.lines;
+}
+
+export function listRunning() {
+  return [...running.values()].filter(entryIsRunning).map(serialize);
+}
+
+export function anyEntryAt(projectPath) {
+  return running.has(projectPath);
+}
+
+export async function adoptPersisted(saved) {
+  for (const s of saved || []) {
+    if (s.kind === 'docker') {
+      const alive = await docker.isRunning(s.name, s.cwd || path.dirname(s.path));
+      if (alive) {
+        running.set(s.path, {
+          kind: 'docker',
+          name: s.name,
+          path: s.path,
+          cwd: s.cwd,
+          port: s.port,
+          pid: null,
+          startedAt: s.startedAt || Date.now(),
+          adopted: true,
+          live: true,
+          building: false,
+          exited: false,
+          exitCode: null,
+          proc: null,
+          lines: []
+        });
+      }
+    } else if (s.pgid && pgidAlive(s.pgid)) {
+      running.set(s.path, {
+        kind: 'native',
+        name: s.name,
+        path: s.path,
+        cwd: s.cwd,
+        port: s.port,
+        pid: s.pid,
+        pgid: s.pgid,
+        startedAt: s.startedAt || Date.now(),
+        adopted: true,
+        exited: false,
+        exitCode: null,
+        proc: null,
+        lines: []
+      });
+    }
+  }
+}
+
+export function persistable() {
+  return [...running.values()]
+    .filter(e => !e.exited)
+    .map(({ kind, name, path, cwd, port, pid, pgid, startedAt }) =>
+      kind === 'docker'
+        ? { kind, name, path, cwd, port, startedAt }
+        : { kind: 'native', name, path, cwd, port, pid, pgid, startedAt });
+}
+
+function serialize(e) {
+  return {
+    kind: e.kind,
+    name: e.name,
+    path: e.path,
+    cwd: e.cwd,
+    port: e.port,
+    pid: e.pid,
+    startedAt: e.startedAt,
+    exited: !!e.exited,
+    exitCode: e.exitCode,
+    adopted: !!e.adopted,
+    building: !!e.building
+  };
+}

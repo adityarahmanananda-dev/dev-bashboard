@@ -1,0 +1,16 @@
+{
+  "name": "dev-bashboard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "DevBashboard — scan folder project, deteksi stack & database, atur port anti-tabrakan, start/stop aplikasi (native + docker compose) dari satu dashboard.",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  }
+}

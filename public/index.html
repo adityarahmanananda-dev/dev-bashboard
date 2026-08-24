@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DevBashboard</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">$_</span>
+      <div>
+        <h1>DevBashboard</h1>
+        <button id="scan-root-btn" class="root-path" title="Ganti folder yang discan">
+          <span id="scan-root-label">…</span> <span class="edit-hint">ubah</span>
+        </button>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <span id="ws-status" class="ws-status" title="Koneksi ke server">●</span>
+      <button id="rescan-btn" class="btn btn-primary">Scan Ulang</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="content">
+      <div id="summary-bar" class="summary-bar"></div>
+      <div id="projects-grid" class="projects-grid"></div>
+      <div id="empty-state" class="empty-state hidden">
+        <p>Tidak ada project di folder ini.</p>
+        <p class="muted">Pilih folder lain lewat tombol path di kiri atas.</p>
+      </div>
+    </section>
+
+    <aside class="sidebar">
+      <h2>Port Terpakai</h2>
+      <p class="muted small">Listening saat ini di mesin ini</p>
+      <table class="ports-table">
+        <thead>
+          <tr><th>Port</th><th>Proses</th><th></th></tr>
+        </thead>
+        <tbody id="ports-used-body"></tbody>
+      </table>
+      <div class="reserved-note">
+        <details>
+          <summary>Daftar port umum yang dihindari (<span id="reserved-count">0</span>)</summary>
+          <div id="reserved-list" class="reserved-list mono"></div>
+        </details>
+      </div>
+    </aside>
+  </main>
+
+  <!-- Drawer log -->
+  <div id="log-drawer" class="log-drawer hidden">
+    <div class="log-header">
+      <div>
+        <strong id="log-title">Log</strong>
+        <span id="log-meta" class="muted small"></span>
+      </div>
+      <div class="log-actions">
+        <label class="small muted"><input type="checkbox" id="autoscroll-toggle" checked /> autoscroll</label>
+        <button id="log-close" class="btn btn-ghost">✕ Tutup</button>
+      </div>
+    </div>
+    <pre id="log-content" class="mono"></pre>
+  </div>
+
+  <!-- Modal folder picker -->
+  <div id="folder-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <strong>Pilih folder yang mau discan</strong>
+        <button id="folder-modal-close" class="btn btn-ghost">✕</button>
+      </div>
+      <div class="breadcrumb mono" id="browse-breadcrumb"></div>
+      <ul id="dir-list" class="dir-list"></ul>
+      <div class="modal-footer">
+        <input type="text" id="manual-path" class="text-input mono" placeholder="atau ketik path manual, mis. /home/…" />
+        <button id="manual-path-go" class="btn">Buka Path</button>
+        <button id="pick-folder" class="btn btn-primary">Pilih Folder Ini</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
