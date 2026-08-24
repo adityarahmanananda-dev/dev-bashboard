@@ -98,10 +98,8 @@ body {
 /* Layout */
 .layout {
   display: grid;
-  grid-template-columns: 1fr 300px;
+  grid-template-columns: minmax(0, 1fr) 300px;
   gap: 20px;
-  max-width: 1280px;
-  margin: 0 auto;
   padding: 20px 22px 80px;
 }
 @media (max-width: 900px) {
