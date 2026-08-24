@@ -80,7 +80,9 @@ function renderCard(p) {
   const isRunning = p.status === 'running';
   const isDocker = p.recipe?.type === 'docker';
   const runInfo = state.running.find(r => r.path === p.path);
-  const currentPort = isRunning ? runInfo?.port : null;
+  const actualPort = runInfo?.actualPorts?.[0] ?? null;
+  const currentPort = isRunning ? (actualPort ?? runInfo?.port) : null;
+  const portDiffers = isRunning && actualPort != null && runInfo?.port != null && actualPort !== runInfo.port;
   const shownPort = currentPort ?? p.chosenPort ?? p.detectedPorts?.[0] ?? '';
 
   const badges = (p.stacks || [])
@@ -124,6 +126,7 @@ function renderCard(p) {
       <div class="port-row">
         <span class="port-label">Berjalan di</span>
         <a class="mono" href="http://127.0.0.1:${currentPort}" target="_blank" rel="noopener">http://127.0.0.1:${currentPort}</a>
+        ${portDiffers ? `<span class="muted small" title="App ini mengabaikan port yang diminta dan memakai port bawaannya">⚠ diminta :${runInfo.port}</span>` : ''}
         ${runInfo?.adopted ? '<span class="muted small">(diadopsi dari sesi sebelumnya)</span>' : ''}
       </div>
     ` : `

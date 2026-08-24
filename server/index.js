@@ -59,7 +59,8 @@ api.get('/projects', async (req, res) => {
     return res.status(400).json({ error: e.message });
   }
   await runner.reconcileDocker();
-  const listening = await portsMod.getListeningPorts();
+  const { listening, byPgid } = await portsMod.getListeningByPgid();
+  runner.refreshActualPorts(byPgid);
   const runningList = runner.listRunning().filter(r => !r.exited);
   const savedPorts = state.get().ports;
 

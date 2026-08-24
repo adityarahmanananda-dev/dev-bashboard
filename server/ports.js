@@ -1,4 +1,5 @@
 import net from 'net';
+import fs from 'fs';
 import { execFile } from 'child_process';
 
 export const RESERVED_PORTS = new Set([
@@ -47,6 +48,29 @@ export async function getListeningPorts() {
   }
   const seen = new Set();
   return result.filter(r => { const k = `${r.port}-${r.address}`; if (seen.has(k)) return false; seen.add(k); return true; });
+}
+
+function procPgid(pid) {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+    return parseInt(fields[2], 10);
+  } catch {
+    return null;
+  }
+}
+
+export async function getListeningByPgid() {
+  const listening = await getListeningPorts();
+  const byPgid = new Map();
+  for (const l of listening) {
+    if (!l.pid) continue;
+    const pgid = procPgid(l.pid);
+    if (pgid == null) continue;
+    if (!byPgid.has(pgid)) byPgid.set(pgid, []);
+    byPgid.get(pgid).push(l);
+  }
+  return { listening, byPgid };
 }
 
 export function isValidPort(p) {

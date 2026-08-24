@@ -246,6 +246,20 @@ export async function reconcileDocker() {
   }
 }
 
+export function refreshActualPorts(byPgid) {
+  for (const e of running.values()) {
+    if (e.kind !== 'native' || e.exited || e.pgid == null) continue;
+    const socks = byPgid.get(Math.abs(e.pgid)) || [];
+    const ports = [...new Set(socks.map(s => s.port))].sort((a, b) => a - b);
+    if (ports.length) {
+      if (JSON.stringify(ports) !== JSON.stringify(e.actualPorts)) {
+        onLog?.(e.name, [`[dashboard] terdeteksi listening di port: ${ports.join(', ')}${e.port && !ports.includes(e.port) ? ` (diminta :${e.port}, app memakai port sendiri)` : ''}`]);
+      }
+      e.actualPorts = ports;
+    }
+  }
+}
+
 export function stop(projectPath) {
   const entry = running.get(projectPath);
   if (!entry) return false;
@@ -356,10 +370,16 @@ export async function adoptPersisted(saved) {
 export function persistable() {
   return [...running.values()]
     .filter(e => !e.exited)
-    .map(({ kind, name, path, cwd, port, pid, pgid, startedAt }) =>
-      kind === 'docker'
-        ? { kind, name, path, cwd, port, startedAt }
-        : { kind: 'native', name, path, cwd, port, pid, pgid, startedAt });
+    .map(({ kind, name, path, cwd, port, pid, pgid, startedAt, actualPorts }) => ({
+      kind,
+      name,
+      path,
+      cwd,
+      port: (actualPorts && actualPorts[0]) || port,
+      pid,
+      pgid,
+      startedAt
+    }));
 }
 
 function serialize(e) {
@@ -374,6 +394,7 @@ function serialize(e) {
     exited: !!e.exited,
     exitCode: e.exitCode,
     adopted: !!e.adopted,
-    building: !!e.building
+    building: !!e.building,
+    actualPorts: e.actualPorts || []
   };
 }
