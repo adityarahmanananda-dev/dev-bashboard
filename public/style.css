@@ -223,14 +223,16 @@ body {
 
 /* Log drawer */
 .log-drawer {
-  position: fixed;
-  bottom: 0; left: 0; right: 0;
+  position: relative;
+  margin-top: 18px;
   height: 42vh;
+  min-height: 220px;
   background: #0a0c11;
-  border-top: 1px solid var(--border);
-  z-index: 40;
+  border: 1px solid var(--border);
+  border-radius: 10px;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .log-header {
   display: flex;

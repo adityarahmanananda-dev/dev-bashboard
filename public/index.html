@@ -31,6 +31,21 @@
         <p>Tidak ada project di folder ini.</p>
         <p class="muted">Pilih folder lain lewat tombol path di kiri atas.</p>
       </div>
+
+      <!-- Panel log: mengalir di bawah daftar project -->
+      <div id="log-drawer" class="log-drawer hidden">
+        <div class="log-header">
+          <div>
+            <strong id="log-title">Log</strong>
+            <span id="log-meta" class="muted small"></span>
+          </div>
+          <div class="log-actions">
+            <label class="small muted"><input type="checkbox" id="autoscroll-toggle" checked /> autoscroll</label>
+            <button id="log-close" class="btn btn-ghost">✕ Tutup</button>
+          </div>
+        </div>
+        <pre id="log-content" class="mono"></pre>
+      </div>
     </section>
 
     <aside class="sidebar">
@@ -50,21 +65,6 @@
       </div>
     </aside>
   </main>
-
-  <!-- Drawer log -->
-  <div id="log-drawer" class="log-drawer hidden">
-    <div class="log-header">
-      <div>
-        <strong id="log-title">Log</strong>
-        <span id="log-meta" class="muted small"></span>
-      </div>
-      <div class="log-actions">
-        <label class="small muted"><input type="checkbox" id="autoscroll-toggle" checked /> autoscroll</label>
-        <button id="log-close" class="btn btn-ghost">✕ Tutup</button>
-      </div>
-    </div>
-    <pre id="log-content" class="mono"></pre>
-  </div>
 
   <!-- Modal folder picker -->
   <div id="folder-modal" class="modal-overlay hidden">

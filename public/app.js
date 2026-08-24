@@ -202,6 +202,7 @@ function openLogs(name) {
   $('#log-meta').textContent = '';
   $('#log-content').textContent = '';
   $('#log-drawer').classList.remove('hidden');
+  $('#log-drawer').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   api(`/projects/${encodeURIComponent(name)}/logs`).then(d => {
     state.logs[name] = d.lines;
     $('#log-content').textContent = d.lines.join('\n');
