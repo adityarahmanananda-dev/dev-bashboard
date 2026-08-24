@@ -2,7 +2,7 @@ import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import * as docker from './docker.js';
-import { buildSetupSteps, venvName } from './venv.js';
+import * as deps from './deps.js';
 
 const LOG_DIR = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', 'data', 'logs');
 const MAX_LOG_LINES = 800;
@@ -313,8 +313,10 @@ export function startSetup(project) {
   const key = 'setup:' + project.path;
   if (running.has(key)) throw new Error('Setup untuk project ini sedang berjalan');
 
-  const steps = buildSetupSteps(project);
-  if (!steps.length) throw new Error(`Tidak ada file dependencies (requirements.txt / pyproject.toml) di ${project.name}`);
+  const manager = deps.depManagerFor(project);
+  if (!manager) throw new Error('Tidak ada manifest dependencies yang dikenali (requirements/pyproject/package.json/go.mod/pom.xml/build.gradle/conanfile/vcpkg.json)');
+  const { steps, error } = deps.buildSteps(manager);
+  if (error || !steps.length) throw new Error(error || 'Tidak ada langkah setup untuk dijalankan');
 
   try { fs.mkdirSync(LOG_DIR, { recursive: true }); fs.writeFileSync(logFile(project.name), ''); } catch {}
 
@@ -322,7 +324,7 @@ export function startSetup(project) {
     kind: 'setup',
     name: project.name,
     path: project.path,
-    cwd: project.path,
+    cwd: manager.dir,
     port: null,
     pid: null,
     pgid: null,
@@ -331,6 +333,7 @@ export function startSetup(project) {
     exitCode: null,
     stepIndex: -1,
     steps: steps.map(s => s.label),
+    manager,
     lines: [],
     proc: null
   };
@@ -341,7 +344,8 @@ export function startSetup(project) {
     if (entry.stepIndex >= steps.length) {
       entry.exited = true;
       entry.exitCode = 0;
-      appendLog(entry, [`[setup] SELESAI ✓ — venv ${venvName(project)} siap dipakai`]);
+      deps.markInstalled(manager);
+      appendLog(entry, [`[setup] SELESAI ✓ — dependencies ${manager.label} siap dipakai`]);
       onSetupEnd?.(project.name, true);
       return;
     }
@@ -351,7 +355,7 @@ export function startSetup(project) {
       `$ ${step.argv.join(' ')}`
     ]);
     const child = spawn(step.argv[0], step.argv.slice(1), {
-      cwd: project.path,
+      cwd: step.cwd || project.path,
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe']
     });

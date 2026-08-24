@@ -63,11 +63,22 @@ Sumber deteksi: dependencies, `.env`, connection string di source code, `prisma/
 - Stop = `docker compose down`
 - File `.env` project dimuat otomatis saat start native — `DATABASE_URL` Supabase dsb. ikut terbawa
 
-### 🐍 Venv manager + tombol Setup
-- Tiap project Python dapat venv sendiri dengan format **`<nama-app>.venv`** di dalam folder project
-- Kartu project menampilkan status: file dependencies (requirements.txt / pyproject.toml), ada/tidaknya venv, dan kelengkapan deps (dicek via `pip install --dry-run`)
-- Tombol **🛠 Setup** membuat venv lalu menjalankan `pip install` bertahap, lengkap dengan log realtime; bisa dibatalkan via **■ Stop Setup**
-- Start akan ditolak dengan pesan jelas bila manifest dependencies ada tetapi venv belum dibuat — tidak ada lagi kegagalan senyap karena modul hilang
+### 📦 Setup dependencies multi-stack
+Tombol **🛠 Setup** tersedia untuk semua stack yang punya manifest dikenal:
+
+| Stack | Manifest | Langkah setup | Cek "siap" |
+|---|---|---|---|
+| Python/pip | requirements.txt / pyproject.toml | buat venv `<nama>.venv` → `pip install` | `pip install --dry-run` |
+| Node/npm | package.json | `npm install` | node_modules segar vs lockfile + penanda sukses setup |
+| Go modules | go.mod (termasuk nested `backend/` dll.) | `go mod download` | `go mod verify` |
+| Java/Maven | pom.xml | `mvn dependency:resolve` (atau ./mvnw) | penanda sukses setup |
+| Java/Gradle | build.gradle(.kts) / settings.gradle(.kts) | `gradle dependencies` (atau ./gradlew) | penanda sukses setup |
+| C++/Conan | conanfile.txt / conanfile.py | `conan install --build=missing` | penanda sukses setup |
+| C++/vcpkg | vcpkg.json | `vcpkg install` ($VCPKG_ROOT atau PATH) | penanda sukses setup |
+
+- Manifest dicari di root project maupun subfolder standar (backend/server/src/client/frontend/app)
+- Tool yang tidak terinstal menghasilkan pesan error actionable, bukan crash
+- Penanda sukses setup disimpan di `data/setup-marks/` (di luar repo project); otomatis gugur bila manifest berubah setelahnya
 
 ---
 

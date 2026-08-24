@@ -106,9 +106,12 @@ function renderCard(p) {
 
   let depsNote = '';
   if (p.deps) {
-    const parts = [`🐍 <b>${esc(p.deps.file)}</b>`];
-    parts.push(p.deps.venvExists ? `venv <b>${esc(p.deps.venvName)}</b> siap` : `venv <b>${esc(p.deps.venvName)}</b> belum ada`);
-    if (p.deps.venvExists) parts.push(p.deps.depsOk ? 'deps ✓' : 'deps ✗ belum lengkap');
+    const readyTxt = p.deps.ready === true ? '✓ siap' : p.deps.ready === false ? '✗ belum terinstal' : '—';
+    const targetTxt = p.deps.id === 'pip' ? `venv <b>${esc(p.deps.target)}</b>` : esc(p.deps.target);
+    const parts = [
+      `📦 <b>${esc(p.deps.file)}</b> <span class="muted">(${esc(p.deps.label)})</span>`,
+      `${targetTxt}: ${readyTxt}`
+    ];
     if (setupRunning) parts.push(`⟳ setup ${setupInfo.progress || ''}`);
     depsNote = `<div class="detected-note">${parts.join(' · ')}</div>`;
   }
@@ -159,7 +162,7 @@ function renderCard(p) {
         ? `<button class="btn btn-danger" data-stop="${esc(p.name)}">■ Stop</button>`
         : `${!setupRunning ? `<button class="btn btn-primary" data-start="${esc(p.name)}">▶ Start${isDocker ? ' (Docker)' : ''}</button>` : ''}
            ${!setupRunning && p.altRecipe ? `<button class="btn" title="Jalan tanpa docker: ${esc(p.altRecipe.argv.join(' '))}" data-native="${esc(p.name)}">⚡ Native</button>` : ''}`}
-      ${p.deps && (!p.deps.venvExists || p.deps.depsOk === false)
+      ${p.deps && p.deps.ready !== true
         ? `<button class="btn" data-setup="${esc(p.name)}" ${setupRunning ? 'disabled' : ''}>${setupRunning ? '⏳ Setup…' : '🛠 Setup'}</button>` : ''}
       <button class="btn btn-ghost" data-logs="${esc(p.name)}">▤ Log</button>
       ${isRunning ? `<a class="btn btn-ghost" href="http://127.0.0.1:${currentPort}" target="_blank" rel="noopener">↗ Buka</a>` : ''}
@@ -248,7 +251,7 @@ async function stopProject(name) {
 async function setupProject(name) {
   try {
     await api(`/projects/${encodeURIComponent(name)}/setup`, { method: 'POST' });
-    toast(`Setup ${name} dimulai — venv + install dependencies`);
+    toast(`Setup dependencies ${name} dimulai`);
     openLogs(name);
   } catch (e) {
     toast(e.message, 'error');

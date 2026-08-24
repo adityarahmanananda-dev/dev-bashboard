@@ -10,7 +10,7 @@ import { scanRoot, scanProject, listDirs } from './scanner.js';
 import * as runner from './runner.js';
 import * as portsMod from './ports.js';
 import * as state from './state.js';
-import { depFileFor, hasVenv, venvName, depsSatisfied } from './venv.js';
+import { depManagerFor, checkReady, buildSteps, venvDir, markInstalled } from './deps.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const HOST = '127.0.0.1';
@@ -66,13 +66,18 @@ api.get('/projects', async (req, res) => {
   const savedPorts = state.get().ports;
 
   await Promise.all(projects.map(async p => {
-    if (!p.stacks?.includes('Python')) return;
-    const depFile = depFileFor(p);
-    if (!depFile) return;
-    const venvExists = hasVenv(p);
-    let depsOk = null;
-    if (venvExists) depsOk = await depsSatisfied(p);
-    p.deps = { file: depFile.kind, venvName: venvName(p), venvExists, depsOk };
+    const manager = depManagerFor(p);
+    if (!manager) return;
+    const ready = await checkReady(manager);
+    const target = manager.id === 'pip'
+      ? path.basename(venvDir(manager))
+      : manager.id === 'npm' ? 'node_modules'
+      : manager.id === 'gomod' ? 'module cache Go'
+      : manager.id === 'maven' ? '~/.m2 repository'
+      : manager.id === 'gradle' ? 'cache Gradle'
+      : manager.id === 'conan' ? 'cache Conan'
+      : 'vcpkg tree';
+    p.deps = { id: manager.id, label: manager.label, file: manager.file, target, ready };
   }));
 
   res.json({
@@ -91,12 +96,12 @@ api.get('/projects', async (req, res) => {
 api.post('/projects/:name/setup', async (req, res) => {
   const project = findProject(req.params.name);
   if (!project) return res.status(404).json({ error: `Project "${req.params.name}" tidak ditemukan di folder scan` });
-  if (!project.stacks?.includes('Python')) {
-    return res.status(400).json({ error: 'Setup venv hanya untuk project Python' });
+  const manager = depManagerFor(project);
+  if (!manager) {
+    return res.status(400).json({ error: 'Tidak ada manifest dependencies yang dikenali (requirements/pyproject/package.json/go.mod/pom.xml/build.gradle/conanfile/vcpkg.json)' });
   }
-  const depFile = depFileFor(project);
-  if (!depFile && hasVenv(project)) {
-    return res.status(400).json({ error: `Tidak ada file dependencies dan venv sudah ada` });
+  if (!buildSteps(manager).steps.length && !runner.getSetup(project.path)) {
+    return res.status(400).json({ error: buildSteps(manager).error || 'Tool untuk setup tidak tersedia' });
   }
   try {
     const setup = runner.startSetup(project);
@@ -119,11 +124,14 @@ api.post('/projects/:name/start', async (req, res) => {
   const hasPublishedPorts = isDocker && Array.isArray(recipe.mappings) && recipe.mappings.length > 0;
 
   if (!isDocker && ['flask-cli', 'python-env', 'uvicorn-env'].includes(recipe.type)) {
-    const depFile = depFileFor(project);
-    if (depFile && !hasVenv(project)) {
-      return res.status(400).json({
-        error: `Dependencies Python (${depFile.kind}) belum disiapkan — klik tombol 🛠 Setup untuk membuat venv ${venvName(project)} dan menginstalnya`
-      });
+    const manager = depManagerFor(project);
+    if (manager?.id === 'pip' && manager) {
+      const ready = await checkReady(manager);
+      if (ready === false) {
+        return res.status(400).json({
+          error: `Dependencies Python belum disiapkan — klik tombol 🛠 Setup untuk membuat venv ${path.basename(venvDir(manager))} dan menginstalnya`
+        });
+      }
     }
   }
 
