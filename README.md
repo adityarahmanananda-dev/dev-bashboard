@@ -63,6 +63,12 @@ Sumber deteksi: dependencies, `.env`, connection string di source code, `prisma/
 - Stop = `docker compose down`
 - File `.env` project dimuat otomatis saat start native — `DATABASE_URL` Supabase dsb. ikut terbawa
 
+### 🐍 Venv manager + tombol Setup
+- Tiap project Python dapat venv sendiri dengan format **`<nama-app>.venv`** di dalam folder project
+- Kartu project menampilkan status: file dependencies (requirements.txt / pyproject.toml), ada/tidaknya venv, dan kelengkapan deps (dicek via `pip install --dry-run`)
+- Tombol **🛠 Setup** membuat venv lalu menjalankan `pip install` bertahap, lengkap dengan log realtime; bisa dibatalkan via **■ Stop Setup**
+- Start akan ditolak dengan pesan jelas bila manifest dependencies ada tetapi venv belum dibuat — tidak ada lagi kegagalan senyap karena modul hilang
+
 ---
 
 ## Instalasi
