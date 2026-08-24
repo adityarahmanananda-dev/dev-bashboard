@@ -98,7 +98,7 @@ export async function suggestPorts(count = 8, exclude = new Set()) {
   return out;
 }
 
-export function checkPortConflict(port, listening, managedRunning) {
+export function checkPortConflict(port, listening, managedRunning, { allowReserved = false } = {}) {
   const sys = listening.find(l => l.port === port && l.address !== '*:22');
   if (sys) {
     return {
@@ -110,7 +110,7 @@ export function checkPortConflict(port, listening, managedRunning) {
   if (managed) {
     return { conflict: true, reason: `Port ${port} dipakai project "${managed.name}" yang sedang jalan` };
   }
-  if (RESERVED_PORTS.has(port)) {
+  if (RESERVED_PORTS.has(port) && !allowReserved) {
     return { conflict: true, reason: `Port ${port} adalah port bawaan layanan/dev server (mis. database, redis, framework). Pilih port lain di atas 20000` };
   }
   return { conflict: false };

@@ -93,9 +93,17 @@ api.post('/projects/:name/start', async (req, res) => {
     return res.status(400).json({ error: `Port tidak valid: ${req.body?.port} (harus 1024–65535)` });
   }
 
+  const fixedMode = !isDocker && recipe.portMode === 'none';
+  const fixedPort = fixedMode ? project.detectedPorts?.[0] : null;
+  if (fixedMode && fixedPort && port !== fixedPort) {
+    return res.status(400).json({
+      error: `Port tidak bisa dioverride untuk project ini (hanya bisa jalan di port bawaan ${fixedPort}). ${recipe.note || ''}`
+    });
+  }
+
   const listening = await portsMod.getListeningPorts();
   const managedRunning = runner.listRunning().filter(r => !r.exited && r.path !== project.path);
-  const conflict = portsMod.checkPortConflict(port, listening, managedRunning);
+  const conflict = portsMod.checkPortConflict(port, listening, managedRunning, { allowReserved: fixedMode });
   if (conflict.conflict) return res.status(409).json({ error: conflict.reason, conflict: true });
 
   try {

@@ -222,15 +222,37 @@ function scanPython(dir) {
     const hardcodedPort = src.match(/port\s*=\s*(\d{4,5})/);
 
     if (flask && !readsEnvPort) {
-      const flaskBin = venv ? path.join(venv, 'bin', 'flask') : 'flask';
-      recipe = {
-        type: 'flask-cli',
-        cwd: dir,
-        argv: [flaskBin, '--app', pyEntry.replace(/\.py$/, ''), 'run', '--host', '127.0.0.1'],
-        portMode: 'arg',
-        fallbackArgv: [pythonBin, pyEntry],
-        venv
-      };
+      const venvPython = venv ? path.join(venv, 'bin', 'python') : 'python3';
+      const venvFlask = venv ? path.join(venv, 'bin', 'flask') : null;
+      const cliArgs = ['--app', pyEntry.replace(/\.py$/, ''), 'run', '--host', '127.0.0.1'];
+
+      let argv = null;
+      let portMode = 'arg';
+      let note = null;
+
+      if (venvFlask && exists(path.join(dir, venvFlask))) {
+        argv = [venvFlask, ...cliArgs];
+      } else {
+        let globalFlask = false;
+        try { globalFlask = !!execSync('command -v flask', { encoding: 'utf8' }).trim(); } catch {}
+        if (globalFlask) {
+          argv = ['flask', ...cliArgs];
+        } else {
+          let modFlask = false;
+          try { execSync(`${venvPython} -c "import flask"`, { stdio: 'pipe', cwd: dir }); modFlask = true; } catch {}
+          if (modFlask) {
+            argv = [venvPython, '-m', 'flask', ...cliArgs];
+          }
+        }
+      }
+
+      if (!argv) {
+        portMode = 'none';
+        note = 'flask CLI tidak tersedia (tidak ada di venv/global/modul python) — app hanya bisa jalan di port bawaannya';
+        argv = [venv ? path.join(venv, 'bin', 'python') : 'python3', pyEntry];
+      }
+
+      recipe = { type: 'flask-cli', cwd: dir, argv, portMode, venv, note };
     } else if (fastapi || uvicornRun) {
       recipe = { type: 'uvicorn-env', cwd: dir, argv: [pythonBin, pyEntry], portMode: 'env:PORT', venv };
     } else {

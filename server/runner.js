@@ -1,5 +1,4 @@
 import { spawn } from 'child_process';
-import { execSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import * as docker from './docker.js';
@@ -139,20 +138,10 @@ export function start(project, port, opts = {}) {
   }
 
   let useRecipe = recipe;
-  let entryNote = null;
-  if (recipe.type === 'flask-cli') {
-    const binPath = path.resolve(recipe.cwd, recipe.argv[0]);
-    if (recipe.argv[0] !== 'flask' && !fs.existsSync(binPath)) {
-      let globalFlask = null;
-      try { globalFlask = execSync('command -v flask', { encoding: 'utf8' }).trim(); } catch {}
-      if (globalFlask) {
-        useRecipe = { ...recipe, argv: ['flask', ...recipe.argv.slice(1)] };
-      } else if (recipe.fallbackArgv) {
-        useRecipe = { type: 'python-fixed', argv: recipe.fallbackArgv, portMode: 'none', cwd: recipe.cwd };
-        entryNote = 'flask CLI tidak tersedia; port mengikuti kode app (tidak bisa dioverride)';
-      }
-    }
+  if (useRecipe.argv[0] && useRecipe.argv[0].includes('/') && !fs.existsSync(path.resolve(useRecipe.cwd, useRecipe.argv[0]))) {
+    throw new Error(`Binary tidak ditemukan: ${useRecipe.argv[0]} (cek venv project)`);
   }
+  const entryNote = useRecipe.note || null;
 
   let { argv, env } = buildStartArgs(useRecipe, port);
   env = { ...loadDotEnv(useRecipe.cwd), ...env };
@@ -198,6 +187,11 @@ export function start(project, port, opts = {}) {
   });
   child.on('error', (err) => {
     appendLog(entry, [`[dashboard] gagal spawn: ${err.message}`]);
+    entry.exited = true;
+    entry.exitCode = null;
+    setTimeout(() => {
+      if (running.get(project.path) === entry) running.delete(project.path);
+    }, 1500);
   });
 
   appendLog(entry, [
