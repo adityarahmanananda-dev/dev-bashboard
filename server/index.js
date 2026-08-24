@@ -3,7 +3,7 @@ import http from 'http';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { WebSocketServer } from 'ws';
 
 import { scanRoot, scanProject, listDirs } from './scanner.js';
@@ -12,8 +12,8 @@ import * as portsMod from './ports.js';
 import * as state from './state.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = parseInt(process.env.DASHBOARD_PORT || '7333', 10);
 const HOST = '127.0.0.1';
+let currentPort = parseInt(process.env.DASHBOARD_PORT || '7333', 10);
 
 const app = express();
 app.use(express.json());
@@ -22,7 +22,7 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 const api = express.Router();
 
 api.get('/config', (req, res) => {
-  res.json({ scanRoot: state.get().scanRoot, dashboardPort: PORT });
+  res.json({ scanRoot: state.get().scanRoot, dashboardPort: currentPort });
 });
 
 api.post('/scan-root', (req, res) => {
@@ -145,9 +145,6 @@ api.use((err, req, res, next) => res.status(500).json({ error: err.message }));
 
 app.use('/api', api);
 
-const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
-
 function broadcast(msg) {
   const raw = JSON.stringify(msg);
   for (const client of wss.clients) {
@@ -157,19 +154,49 @@ function broadcast(msg) {
 
 runner.setOnLog((name, lines) => broadcast({ type: 'log', name, lines }));
 
-setInterval(() => {
-  const procs = runner.persistable();
-  state.setProcesses(procs);
-}, 5000);
-
+const wss = new WebSocketServer({ noServer: true });
 wss.on('connection', (ws) => {
   ws.send(JSON.stringify({ type: 'hello', running: runner.listRunning() }));
 });
 
-state.load();
-runner.adoptPersisted(state.get().processes || []);
+let persistTimer = null;
 
-server.listen(PORT, HOST, () => {
-  console.log(`Dashboard jalan di http://${HOST}:${PORT}`);
-  console.log(`Folder scan: ${state.get().scanRoot}`);
-});
+export function start({ port, scanRoot } = {}) {
+  if (!Number.isInteger(port)) port = currentPort;
+  currentPort = port;
+  state.load();
+  if (scanRoot) state.setScanRoot(path.resolve(scanRoot.replace(/^~(?=\/|$)/, os.homedir())));
+  runner.adoptPersisted(state.get().processes || []);
+
+  if (!persistTimer) {
+    persistTimer = setInterval(() => {
+      state.setProcesses(runner.persistable());
+    }, 5000);
+  }
+
+  const server = http.createServer(app);
+  server.on('upgrade', (req, socket, head) => {
+    if (req.url === '/ws') wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req));
+    else socket.destroy();
+  });
+
+  return new Promise((resolve, reject) => {
+    server.once('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        reject(new Error(`Port ${port} sudah dipakai proses lain. Coba jalankan dengan -p <port_lain>`));
+      } else reject(err);
+    });
+    server.listen(port, HOST, () => {
+      console.log(`DevBashboard jalan di http://${HOST}:${port}`);
+      console.log(`Folder scan: ${state.get().scanRoot}`);
+      resolve(server);
+    });
+  });
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  start({ port: parseInt(process.env.DASHBOARD_PORT || '7333', 10) }).catch((e) => {
+    console.error(`[dev-bashboard] ${e.message}`);
+    process.exit(1);
+  });
+}

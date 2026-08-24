@@ -5,6 +5,9 @@
   "type": "module",
   "description": "DevBashboard — scan folder project, deteksi stack & database, atur port anti-tabrakan, start/stop aplikasi (native + docker compose) dari satu dashboard.",
   "main": "server/index.js",
+  "bin": {
+    "dev-bashboard": "bin/dev-bashboard.js"
+  },
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch server/index.js"
