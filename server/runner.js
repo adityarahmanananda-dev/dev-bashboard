@@ -35,6 +35,50 @@ function pgidAlive(pgid) {
   }
 }
 
+function pidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code === 'EPERM';
+  }
+}
+
+function procInfo(pid) {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const f = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+    return { ppid: parseInt(f[1], 10), pgrp: parseInt(f[2], 10) };
+  } catch {
+    return null;
+  }
+}
+
+function collectVictims(rootPid, pgid) {
+  let entries;
+  try { entries = fs.readdirSync('/proc'); } catch { return [rootPid]; }
+  const infos = new Map();
+  for (const d of entries) {
+    const pid = parseInt(d, 10);
+    if (!Number.isInteger(pid)) continue;
+    const info = procInfo(pid);
+    if (info) infos.set(pid, info);
+  }
+  const victims = new Set([rootPid]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const [pid, info] of infos) {
+      if (victims.has(pid)) continue;
+      if (victims.has(info.ppid) || info.pgrp === pgid) {
+        victims.add(pid);
+        grew = true;
+      }
+    }
+  }
+  return [...victims];
+}
+
 function loadDotEnv(cwd) {
   const env = {};
   try {
@@ -276,15 +320,28 @@ export function stop(projectPath) {
     return true;
   }
 
-  try { process.kill(-entry.pgid, 'SIGTERM'); } catch {}
+  const pgid = Math.abs(entry.pgid);
+  let victims = collectVictims(entry.pid, pgid);
+  const killAll = (sig) => {
+    for (const p of victims) {
+      try { process.kill(p, sig); } catch {}
+    }
+    try { process.kill(-pgid, sig); } catch {}
+  };
+  killAll('SIGTERM');
+  appendLog(entry, [`[dashboard] stop: SIGTERM ke ${victims.length} proses (termasuk child yang pindah group)`]);
+
   const deadline = Date.now() + STOP_GRACE_MS;
   const timer = setInterval(() => {
-    if (!pgidAlive(entry.pgid)) {
+    victims = victims.filter(pidAlive);
+    if (!victims.length) {
       clearInterval(timer);
       running.delete(projectPath);
-    } else if (Date.now() > deadline) {
+      return;
+    }
+    if (Date.now() > deadline) {
+      killAll('SIGKILL');
       clearInterval(timer);
-      try { process.kill(-entry.pgid, 'SIGKILL'); } catch {}
       running.delete(projectPath);
     }
   }, 300);
