@@ -80,9 +80,15 @@ export function buildSteps(manager) {
   if (manager.id === 'pip') {
     const venvPath = venvDir(manager);
     const py = path.join(venvPath, 'bin', 'python');
+    const pipBin = path.join(venvPath, 'bin', 'pip');
+    const pip3Bin = path.join(venvPath, 'bin', 'pip3');
+    const hasPip = fs.existsSync(pipBin) || fs.existsSync(pip3Bin);
     const steps = [];
     if (!fs.existsSync(py)) {
       steps.push({ argv: ['python3', '-m', 'venv', venvPath], label: `buat venv ${path.basename(venvPath)}`, cwd: manager.dir });
+    }
+    if (fs.existsSync(py) && !hasPip) {
+      steps.push({ argv: [py, '-m', 'ensurepip', '--upgrade'], label: 'bootstrap pip (ensurepip)', cwd: manager.dir });
     }
     steps.push(
       manager.kind === 'requirements'
@@ -167,16 +173,24 @@ export function checkReady(manager) {
   if (manager.id === 'pip') {
     const py = path.join(venvDir(manager), 'bin', 'python');
     if (!fs.existsSync(py)) return Promise.resolve(false);
-    const args =
-      manager.kind === 'requirements'
-        ? ['-m', 'pip', 'install', '--dry-run', '--quiet', '-r', manager.file]
-        : ['-m', 'pip', 'install', '--dry-run', '--quiet', '.'];
+
+    let firstPkg = 'pip';
+    try {
+      const lines = fs.readFileSync(manager.manifestPath, 'utf8').split('\n');
+      for (const line of lines) {
+        const m = line.trim().match(/^([a-zA-Z0-9_-]+)/);
+        if (m) { firstPkg = m[1].replace(/-/g, '_').toLowerCase(); break; }
+      }
+    } catch {}
+
     return new Promise((resolve) => {
-      execFile(py, args, { cwd: manager.dir, timeout: 90000 }, (err, stdout, stderr) => {
+      execFile(py, ['-c', `import ${firstPkg}`], { cwd: manager.dir, timeout: 15000 }, (err) => {
         if (!err) return resolve(true);
-        const msg = `${stdout}${stderr}`;
-        if (/unknown option|--dry-run|invalid choice/i.test(msg)) return resolve(true);
-        resolve(false);
+        execFile(py, ['-m', 'pip', 'install', '--dry-run', '-r', manager.file], { cwd: manager.dir, timeout: 90000 }, (err2, stdout) => {
+          if (!err2 && stdout && /Would install|Would download/i.test(stdout)) return resolve(false);
+          if (!err2) return resolve(true);
+          resolve(false);
+        });
       });
     });
   }
