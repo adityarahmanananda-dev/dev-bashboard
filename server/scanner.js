@@ -2,9 +2,11 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { execSync } from 'child_process';
+import { fileURLToPath } from 'url';
 import { parseComposePorts } from './docker.js';
+import * as env from './env.js';
 
-const SELF_DIR = path.dirname(new URL(import.meta.url).pathname);
+const SELF_DIR = path.dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = path.resolve(SELF_DIR, '..');
 
 function readFileSafe(p) {
@@ -40,9 +42,8 @@ function readDescription(dir) {
 function findVenv(dir) {
   const preferred = `${path.basename(dir)}.venv`;
   for (const name of [preferred, ...fs.readdirSync(dir)]) {
-    const binPython = path.join(dir, name, 'bin', 'python');
     const isDir = (() => { try { return fs.statSync(path.join(dir, name)).isDirectory(); } catch { return false; } })();
-    if (isDir && exists(binPython)) {
+    if (isDir && exists(env.venvPython(path.join(dir, name)))) {
       if (name === preferred || name === 'venv' || name === '.venv' || /env|venv/i.test(name)) return name;
     }
   }
@@ -197,7 +198,7 @@ function scanPython(dir) {
 
   const stacks = ['Python'];
   const venv = findVenv(dir);
-  const pythonBin = venv ? path.join(venv, 'bin', 'python') : 'python3';
+  const pythonBin = venv ? env.venvPython(path.join(dir, venv)) : env.pythonCmd();
 
   let recipe = null;
   let detectedPorts = detectPortInFiles(dir);
@@ -223,19 +224,19 @@ function scanPython(dir) {
     const hardcodedPort = src.match(/port\s*=\s*(\d{4,5})/);
 
     if (flask && !readsEnvPort) {
-      const venvPython = venv ? path.join(venv, 'bin', 'python') : 'python3';
-      const venvFlask = venv ? path.join(venv, 'bin', 'flask') : null;
+      const venvPython = venv ? env.venvPython(path.join(dir, venv)) : env.pythonCmd();
+      const venvFlask = venv ? env.venvFlask(path.join(dir, venv)) : null;
       const cliArgs = ['--app', pyEntry.replace(/\.py$/, ''), 'run', '--host', '127.0.0.1'];
 
       let argv = null;
       let portMode = 'arg';
       let note = null;
 
-      if (venvFlask && exists(path.join(dir, venvFlask))) {
+      if (venvFlask && exists(venvFlask)) {
         argv = [venvFlask, ...cliArgs];
       } else {
         let globalFlask = false;
-        try { globalFlask = !!execSync('command -v flask', { encoding: 'utf8' }).trim(); } catch {}
+        try { globalFlask = !!execSync(process.platform === 'win32' ? 'where flask' : 'command -v flask', { encoding: 'utf8' }).trim(); } catch {}
         if (globalFlask) {
           argv = ['flask', ...cliArgs];
         } else {
@@ -250,7 +251,7 @@ function scanPython(dir) {
       if (!argv) {
         portMode = 'none';
         note = 'flask CLI tidak tersedia (tidak ada di venv/global/modul python) — app hanya bisa jalan di port bawaannya';
-        argv = [venv ? path.join(venv, 'bin', 'python') : 'python3', pyEntry];
+        argv = [venv ? env.venvPython(path.join(dir, venv)) : env.pythonCmd(), pyEntry];
       }
 
       recipe = { type: 'flask-cli', cwd: dir, argv, portMode, venv, note };
@@ -280,7 +281,7 @@ function scanStatic(dir) {
     recipe: {
       type: 'static',
       cwd: dir,
-      argv: ['python3', '-m', 'http.server'],
+      argv: [env.pythonCmd(), '-m', 'http.server'],
       portMode: 'arg-static'
     },
     detectedPorts: []

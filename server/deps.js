@@ -3,13 +3,16 @@ import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import { execFile, execSync } from 'child_process';
+import { fileURLToPath } from 'url';
+import * as env from './env.js';
 
-const DATA_DIR = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', 'data');
+const DATA_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'data');
 const MARKS_DIR = path.join(DATA_DIR, 'setup-marks');
 const NESTED_DIRS = ['backend', 'server', 'src', 'client', 'frontend', 'app'];
 
 function have(tool) {
-  try { execSync(`command -v ${tool}`, { stdio: 'pipe' }); return true; } catch { return false; }
+  const check = process.platform === 'win32' ? `where ${tool}` : `command -v ${tool}`;
+  try { execSync(check, { stdio: 'pipe' }); return true; } catch { return false; }
 }
 
 function findFile(dir, names) {
@@ -79,13 +82,13 @@ export function depManagerFor(project) {
 export function buildSteps(manager) {
   if (manager.id === 'pip') {
     const venvPath = venvDir(manager);
-    const py = path.join(venvPath, 'bin', 'python');
-    const pipBin = path.join(venvPath, 'bin', 'pip');
-    const pip3Bin = path.join(venvPath, 'bin', 'pip3');
+    const py = env.venvPython(venvPath);
+    const pipBin = env.venvBin(venvPath, 'pip');
+    const pip3Bin = env.venvBin(venvPath, 'pip3');
     const hasPip = fs.existsSync(pipBin) || fs.existsSync(pip3Bin);
     const steps = [];
     if (!fs.existsSync(py)) {
-      steps.push({ argv: ['python3', '-m', 'venv', venvPath], label: `buat venv ${path.basename(venvPath)}`, cwd: manager.dir });
+      steps.push({ argv: [env.pythonCmd(), '-m', 'venv', venvPath], label: `buat venv ${path.basename(venvPath)}`, cwd: manager.dir });
     }
     if (fs.existsSync(py) && !hasPip) {
       steps.push({ argv: [py, '-m', 'ensurepip', '--upgrade'], label: 'bootstrap pip (ensurepip)', cwd: manager.dir });
@@ -111,8 +114,13 @@ export function buildSteps(manager) {
     if (have('mvn')) {
       return { steps: [{ argv: ['mvn', '-q', 'dependency:resolve'], label: 'maven resolve dependencies', cwd: manager.dir }] };
     }
-    if (fs.existsSync(path.join(manager.dir, 'mvnw'))) {
-      return { steps: [{ argv: ['sh', '-c', './mvnw -q dependency:resolve'], label: 'maven (wrapper) resolve dependencies', cwd: manager.dir }] };
+    const wrapper = fs.existsSync(path.join(manager.dir, 'mvnw.cmd'))
+      ? ['cmd', '/c', 'mvnw.cmd', '-q', 'dependency:resolve']
+      : fs.existsSync(path.join(manager.dir, 'mvnw'))
+        ? ['sh', '-c', './mvnw -q dependency:resolve']
+        : null;
+    if (wrapper) {
+      return { steps: [{ argv: wrapper, label: 'maven (wrapper) resolve dependencies', cwd: manager.dir }] };
     }
     return { steps: [], error: '`mvn` tidak ditemukan di PATH dan project tidak punya ./mvnw' };
   }
@@ -121,8 +129,13 @@ export function buildSteps(manager) {
     if (have('gradle')) {
       return { steps: [{ argv: ['gradle', '-q', 'dependencies', '--no-daemon'], label: 'gradle resolve dependencies', cwd: manager.dir }] };
     }
-    if (fs.existsSync(path.join(manager.dir, 'gradlew'))) {
-      return { steps: [{ argv: ['sh', '-c', './gradlew -q dependencies --no-daemon'], label: 'gradle (wrapper) resolve dependencies', cwd: manager.dir }] };
+    const wrapper = fs.existsSync(path.join(manager.dir, 'gradlew.bat'))
+      ? ['cmd', '/c', 'gradlew.bat', '-q', 'dependencies', '--no-daemon']
+      : fs.existsSync(path.join(manager.dir, 'gradlew'))
+        ? ['sh', '-c', './gradlew -q dependencies --no-daemon']
+        : null;
+    if (wrapper) {
+      return { steps: [{ argv: wrapper, label: 'gradle (wrapper) resolve dependencies', cwd: manager.dir }] };
     }
     return { steps: [], error: '`gradle` tidak ditemukan di PATH dan project tidak punya ./gradlew' };
   }
@@ -171,7 +184,7 @@ function npmStale(manager) {
 
 export function checkReady(manager) {
   if (manager.id === 'pip') {
-    const py = path.join(venvDir(manager), 'bin', 'python');
+    const py = env.venvPython(venvDir(manager));
     if (!fs.existsSync(py)) return Promise.resolve(false);
 
     let firstPkg = 'pip';

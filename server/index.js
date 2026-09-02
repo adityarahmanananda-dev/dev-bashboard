@@ -10,6 +10,7 @@ import { scanRoot, scanProject, listDirs } from './scanner.js';
 import * as runner from './runner.js';
 import * as portsMod from './ports.js';
 import * as state from './state.js';
+import * as env from './env.js';
 import { depManagerFor, checkReady, buildSteps, venvDir, markInstalled } from './deps.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -23,7 +24,21 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 const api = express.Router();
 
 api.get('/config', (req, res) => {
-  res.json({ scanRoot: state.get().scanRoot, dashboardPort: currentPort });
+  res.json({ scanRoot: state.get().scanRoot, dashboardPort: currentPort, env: env.detect() });
+});
+
+api.get('/env', (req, res) => {
+  res.json(env.detect());
+});
+
+api.post('/env', (req, res) => {
+  const kind = req.body?.kind;
+  if (kind !== null && !env.ENV_KINDS.includes(kind)) {
+    return res.status(400).json({ error: `Env tidak dikenal: ${kind}. Pilih: ${env.ENV_KINDS.join(', ')} atau null` });
+  }
+  env.setKind(kind);
+  state.setEnvKind(kind);
+  res.json(env.detect());
 });
 
 api.post('/scan-root', (req, res) => {
@@ -223,6 +238,7 @@ export function start({ port, scanRoot } = {}) {
   if (!Number.isInteger(port)) port = currentPort;
   currentPort = port;
   state.load();
+  env.setKind(state.get().envKind);
   if (scanRoot) state.setScanRoot(path.resolve(scanRoot.replace(/^~(?=\/|$)/, os.homedir())));
   runner.adoptPersisted(state.get().processes || []);
 

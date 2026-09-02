@@ -1,11 +1,12 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { fileURLToPath } from 'url';
 
-const DATA_DIR = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', 'data');
+const DATA_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'data');
 const STATE_FILE = path.join(DATA_DIR, 'state.json');
 
-let state = { scanRoot: null, ports: {}, processes: [] };
+let state = { scanRoot: null, envKind: null, ports: {}, processes: [] };
 
 export function load() {
   try {
@@ -33,6 +34,11 @@ export function save() {
 
 export function setScanRoot(root) {
   state.scanRoot = root;
+  save();
+}
+
+export function setEnvKind(kind) {
+  state.envKind = kind || null;
   save();
 }
 

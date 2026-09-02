@@ -68,9 +68,15 @@ const url = `http://127.0.0.1:${port}`;
 console.log('Tekan Ctrl+C untuk menghentikan DevBashboard.');
 
 if (opts.open) {
-  const child = spawn('xdg-open', [url], { detached: true, stdio: 'ignore' });
+  const platform = process.platform;
+  const [cmd, args] = platform === 'win32'
+    ? ['cmd', ['/c', 'start', '', url]]
+    : platform === 'darwin'
+      ? ['open', [url]]
+      : ['xdg-open', [url]];
+  const child = spawn(cmd, args, { detached: true, stdio: 'ignore' });
   child.on('error', () => {
-    console.log(`[dev-bashboard] xdg-open tidak tersedia — buka manual: ${url}`);
+    console.log(`[dev-bashboard] browser tidak bisa dibuka otomatis — buka manual: ${url}`);
   });
   child.unref();
 }

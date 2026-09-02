@@ -1,6 +1,7 @@
 import net from 'net';
 import fs from 'fs';
 import { execFile } from 'child_process';
+import * as env from './env.js';
 
 export const RESERVED_PORTS = new Set([
   20, 21, 22, 23, 25, 53, 67, 68, 69, 80, 110, 111, 123, 135, 137, 138, 139,
@@ -27,7 +28,14 @@ function runSs() {
   });
 }
 
+function runNetstat() {
+  return new Promise((resolve) => {
+    execFile('netstat', ['-ano'], (err, stdout) => resolve(err ? '' : stdout));
+  });
+}
+
 export async function getListeningPorts() {
+  if (env.isWindows()) return getListeningPortsWindows();
   const out = await runSs();
   const result = [];
   for (const line of out.split('\n')) {
@@ -50,6 +58,22 @@ export async function getListeningPorts() {
   return result.filter(r => { const k = `${r.port}-${r.address}`; if (seen.has(k)) return false; seen.add(k); return true; });
 }
 
+async function getListeningPortsWindows() {
+  const out = await runNetstat();
+  const result = [];
+  for (const line of out.split('\n')) {
+    const m = line.trim().match(/^TCP\s+([^\s]+)\s+[^\s]+\s+(?:LISTENING|\*\*)\s+(\d+)$/i);
+    if (!m) continue;
+    const local = m[1];
+    const portStr = local.includes(']:') ? local.split(']:').pop() : local.split(':').pop();
+    const port = parseInt(portStr, 10);
+    if (!Number.isInteger(port)) continue;
+    result.push({ port, address: local, process: null, pid: parseInt(m[2], 10) });
+  }
+  const seen = new Set();
+  return result.filter(r => { const k = `${r.port}-${r.address}`; if (seen.has(k)) return false; seen.add(k); return true; });
+}
+
 function procPgid(pid) {
   try {
     const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
@@ -63,6 +87,7 @@ function procPgid(pid) {
 export async function getListeningByPgid() {
   const listening = await getListeningPorts();
   const byPgid = new Map();
+  if (env.isWindows()) return { listening, byPgid };
   for (const l of listening) {
     if (!l.pid) continue;
     const pgid = procPgid(l.pid);

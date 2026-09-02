@@ -75,6 +75,26 @@ body {
 .topbar-actions { display: flex; align-items: center; gap: 14px; }
 .ws-status { font-size: 10px; color: var(--red); }
 .ws-status.online { color: var(--green); }
+.env-chip {
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.env-chip:hover { border-style: solid; border-color: var(--blue); }
+.env-options { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+.env-option {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.env-option:hover { background: var(--bg-hover); }
+.env-option input { accent-color: var(--blue); }
 
 /* Buttons */
 .btn {

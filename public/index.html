@@ -18,6 +18,7 @@
       </div>
     </div>
     <div class="topbar-actions">
+      <button id="env-btn" class="env-chip" title="Lingkungan OS yang dipakai — ubah bila perlu">…</button>
       <span id="ws-status" class="ws-status" title="Koneksi ke server">●</span>
       <button id="rescan-btn" class="btn btn-primary">Scan Ulang</button>
     </div>
@@ -79,6 +80,22 @@
         <input type="text" id="manual-path" class="text-input mono" placeholder="atau ketik path manual, mis. /home/…" />
         <button id="manual-path-go" class="btn">Buka Path</button>
         <button id="pick-folder" class="btn btn-primary">Pilih Folder Ini</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal lingkungan OS -->
+  <div id="env-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <strong>Lingkungan OS DevBashboard</strong>
+        <button id="env-modal-close" class="btn btn-ghost">✕</button>
+      </div>
+      <p class="muted small" id="env-detect-note"></p>
+      <p class="muted small">Pilih lingkungan tempat program ini dijalankan. Digunakan untuk memilih perintah Python, lokasi venv, cara stop proses, dsb.</p>
+      <div id="env-options" class="env-options"></div>
+      <div class="modal-footer">
+        <button id="env-save" class="btn btn-primary">Simpan</button>
       </div>
     </div>
   </div>

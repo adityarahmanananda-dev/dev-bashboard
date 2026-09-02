@@ -8,7 +8,8 @@ const state = {
   reserved: [],
   setups: [],
   logProject: null,
-  logs: {}
+  logs: {},
+  env: null
 };
 
 /* ---------- helpers ---------- */
@@ -56,6 +57,71 @@ async function loadPortsMeta() {
   state.reserved = data.reserved;
   $('#reserved-count').textContent = data.reserved.length;
   $('#reserved-list').textContent = [...data.reserved].sort((a, b) => a - b).join('  ');
+}
+
+/* ---------- env ---------- */
+
+function envLabel(env) {
+  if (!env?.kind) {
+    const detected = (env?.kinds || []).find(k => k.id === env?.detected);
+    return detected ? `auto (${detected.label})` : 'tidak diketahui';
+  }
+  const k = (env.kinds || []).find(k => k.id === env.kind);
+  return env.override && env.kind !== env.detected ? `${k?.label} ⚡` : k?.label || env.kind;
+}
+
+function renderEnvChip() {
+  const el = $('#env-btn');
+  if (!state.env) return;
+  el.textContent = `🖥 ${envLabel(state.env)}`;
+  el.title = `${state.env.note} — ${state.env.override ? 'override dipilih manual' : 'terdeteksi otomatis'}. Klik untuk ubah.`;
+}
+
+async function loadEnv() {
+  try {
+    state.env = await api('/env');
+    renderEnvChip();
+    if (!state.env.kind) {
+      toast('Lingkungan OS tidak terdeteksi — pilih manual', 'warn');
+      openEnvModal(true);
+    }
+  } catch (e) {
+    toast(`Gagal ambil environment: ${e.message}`, 'error');
+  }
+}
+
+function openEnvModal(force = false) {
+  const env = state.env || { kind: null, detected: null, kinds: [] };
+  const note = $('#env-detect-note');
+  note.textContent = `Terdeteksi: ${env.note || '—'}` +
+    (env.override ? ` · saat ini di-override ke ${envLabel(env)}` : '');
+  const choices = [{ id: null, label: 'Otomatis (ikuti deteksi)' }, ...(env.kinds || [])];
+  const current = env.override ? env.kind : null;
+  $('#env-options').innerHTML = choices.map(c => `
+    <label class="env-option">
+      <input type="radio" name="env-kind" value="${c.id === null ? 'auto' : c.id}" ${(c.id === null ? current == null : c.id === current) ? 'checked' : ''} />
+      <span>${c.label}</span>
+    </label>
+  `).join('');
+  $('#env-modal').classList.remove('hidden');
+  if (force) $('#env-modal-close').style.display = 'none';
+  else $('#env-modal-close').style.display = '';
+}
+
+async function saveEnv() {
+  const sel = document.querySelector('input[name="env-kind"]:checked');
+  if (!sel) return;
+  const kind = sel.value === 'auto' ? null : sel.value;
+  try {
+    state.env = await api('/env', { method: 'POST', body: { kind } });
+    renderEnvChip();
+    $('#env-modal').classList.add('hidden');
+    $('#env-modal-close').style.display = '';
+    toast(`Environment: ${envLabel(state.env)}`);
+    await refresh();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
 }
 
 /* ---------- render ---------- */
@@ -357,6 +423,12 @@ document.addEventListener('keydown', (e) => {
 
 $('#rescan-btn').addEventListener('click', refresh);
 $('#scan-root-btn').addEventListener('click', openFolderModal);
+$('#env-btn').addEventListener('click', () => openEnvModal());
+$('#env-modal-close').addEventListener('click', () => $('#env-modal').classList.add('hidden'));
+$('#env-save').addEventListener('click', saveEnv);
+$('#env-modal').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) e.currentTarget.classList.add('hidden');
+});
 $('#folder-modal-close').addEventListener('click', () => $('#folder-modal').classList.add('hidden'));
 $('#folder-modal').addEventListener('click', (e) => {
   if (e.target === e.currentTarget) e.currentTarget.classList.add('hidden');
@@ -373,6 +445,7 @@ $('#log-close').addEventListener('click', () => {
 (async function init() {
   const cfg = await api('/config').catch(() => null);
   connectWs();
+  await loadEnv();
   await loadPortsMeta();
   await refresh();
 })();

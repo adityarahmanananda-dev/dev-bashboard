@@ -1,8 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 import { execFile } from 'child_process';
+import { fileURLToPath } from 'url';
 
-const DATA_DIR = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', 'data');
+const DATA_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'data');
 const OVERRIDE_DIR = path.join(DATA_DIR, 'compose-overrides');
 
 export function slugify(name) {

@@ -1,10 +1,12 @@
-import { spawn } from 'child_process';
+import { spawn, execFile } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
 import * as docker from './docker.js';
 import * as deps from './deps.js';
+import * as env from './env.js';
 
-const LOG_DIR = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', 'data', 'logs');
+const LOG_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'data', 'logs');
 const MAX_LOG_LINES = 800;
 const STOP_GRACE_MS = 5000;
 
@@ -27,6 +29,7 @@ function appendLog(entry, lines) {
 }
 
 function pgidAlive(pgid) {
+  if (env.isWindows()) return false;
   try {
     process.kill(-pgid, 0);
     return true;
@@ -55,6 +58,7 @@ function procInfo(pid) {
 }
 
 function collectVictims(rootPid, pgid) {
+  if (env.isWindows()) return [rootPid];
   let entries;
   try { entries = fs.readdirSync('/proc'); } catch { return [rootPid]; }
   const infos = new Map();
@@ -405,8 +409,12 @@ export function stop(projectPath) {
       running.delete(key);
       return true;
     }
-    const victims = collectVictims(entry.pid, Math.abs(entry.pgid));
-    for (const p of victims) { try { process.kill(p, 'SIGKILL'); } catch {} }
+    if (env.isWindows()) {
+      try { execFile('taskkill', ['/pid', String(entry.pid), '/T', '/F'], () => {}); } catch {}
+    } else {
+      const victims = collectVictims(entry.pid, Math.abs(entry.pgid));
+      for (const p of victims) { try { process.kill(p, 'SIGKILL'); } catch {} }
+    }
     appendLog(entry, ['[setup] dibatalkan oleh user']);
     entry.exited = true;
     entry.exitCode = 130;
@@ -424,6 +432,23 @@ export function stop(projectPath) {
       running.delete(projectPath);
       onLog?.(entry.name, ['[dashboard] project dihentikan']);
     });
+    return true;
+  }
+
+  if (env.isWindows()) {
+    if (entry.pid) {
+      try { execFile('taskkill', ['/pid', String(entry.pid), '/T', '/F'], () => {}); } catch {}
+      if (!entry.proc) {
+        const timer = setInterval(() => {
+          if (pidAlive(entry.pid)) return;
+          clearInterval(timer);
+          if (running.get(projectPath) === entry) running.delete(projectPath);
+          onLog?.(entry.name, ['[dashboard] project dihentikan']);
+        }, 300);
+        setTimeout(() => clearInterval(timer), 15000);
+      }
+    }
+    appendLog(entry, ['[dashboard] stop: taskkill /T ke proses tree']);
     return true;
   }
 
@@ -511,7 +536,7 @@ export async function adoptPersisted(saved) {
           lines: []
         });
       }
-    } else if (s.pgid && pgidAlive(s.pgid)) {
+    } else if (s.pgid && (env.isWindows() ? (s.pid && pidAlive(s.pid)) : pgidAlive(s.pgid))) {
       running.set(s.path, {
         kind: 'native',
         name: s.name,
