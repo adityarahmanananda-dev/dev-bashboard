@@ -315,7 +315,9 @@ export function getSetup(projectPath) {
 
 export function startSetup(project) {
   const key = 'setup:' + project.path;
-  if (running.has(key)) throw new Error('Setup untuk project ini sedang berjalan');
+  const prev = running.get(key);
+  if (prev && !prev.exited) throw new Error('Setup untuk project ini sedang berjalan');
+  if (prev) running.delete(key);
 
   const manager = deps.depManagerFor(project);
   if (!manager) throw new Error('Tidak ada manifest dependencies yang dikenali (requirements/pyproject/package.json/go.mod/pom.xml/build.gradle/conanfile/vcpkg.json)');
@@ -343,6 +345,12 @@ export function startSetup(project) {
   };
   running.set(key, entry);
 
+  const forget = () => {
+    setTimeout(() => {
+      if (running.get(key) === entry) running.delete(key);
+    }, 1500);
+  };
+
   const runNext = () => {
     entry.stepIndex++;
     if (entry.stepIndex >= steps.length) {
@@ -351,6 +359,7 @@ export function startSetup(project) {
       deps.markInstalled(manager);
       appendLog(entry, [`[setup] SELESAI ✓ — dependencies ${manager.label} siap dipakai`]);
       onSetupEnd?.(project.name, true);
+      forget();
       return;
     }
     const step = steps[entry.stepIndex];
@@ -373,6 +382,7 @@ export function startSetup(project) {
       entry.exited = true;
       entry.exitCode = 1;
       onSetupEnd?.(project.name, false);
+      forget();
     });
     child.on('exit', code => {
       if (entry.exited) return;
@@ -382,6 +392,7 @@ export function startSetup(project) {
         entry.exitCode = code;
         appendLog(entry, [`[setup] GAGAL di langkah "${step.label}" (exit ${code}) — periksa log di atas`]);
         onSetupEnd?.(project.name, false);
+        forget();
       }
     });
   };
