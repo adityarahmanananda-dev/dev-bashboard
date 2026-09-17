@@ -497,11 +497,39 @@ function engagementHours(engagement) {
 
 function rateIncrease(dur, rate) {
   const d = (dur || '').toLowerCase();
-  const freq = d.includes('more than 6') || d.includes('6+') || d.includes('3 to 6')
-    ? 'Every 6 months'
-    : 'Every year';
+  let freq = 'Every year';
+  if (d.includes('more than 6') || d.includes('6+')) freq = 'Every 6 months';
+  else if (d.includes('3 to 6')) freq = 'Every 3 months';
   const pct = rate >= 60 ? 5 : 10;
   return { freq, pct };
+}
+
+function durationWeeks(dur) {
+  const d = (dur || '').toLowerCase();
+  if (d.includes('less than 1 month') || d.includes('less than one month')) return 4;
+  if (d.includes('1 to 3')) return 8;
+  if (d.includes('3 to 6')) return 18;
+  if (d.includes('more than 6')) return 52;
+  return 12;
+}
+
+function freqWeeks(freq) {
+  if (freq === 'Every 3 months') return 13;
+  if (freq === 'Every 6 months') return 26;
+  return 52;
+}
+
+function totalWithRaise(rate, hours, weeks, freq, pct) {
+  const F = freqWeeks(freq);
+  const P = pct / 100;
+  let sum = 0, remaining = weeks, mult = 1;
+  while (remaining > 0) {
+    const block = Math.min(remaining, F);
+    sum += mult * block;
+    mult *= (1 + P);
+    remaining -= block;
+  }
+  return rate * hours * sum;
 }
 
 function bidSuggestion(job) {
@@ -531,7 +559,9 @@ function bidSuggestion(job) {
   const max = Number(job.hourlyMax) || 0;
   const rate = max > min ? niceRate((min + max) / 2) : (min ? niceRate(min) : 0);
   const hours = engagementHours(job.engagement);
+  const weeks = durationWeeks(dur);
   const inc = rateIncrease(dur, rate);
+  const totalPotential = totalWithRaise(rate, hours, weeks, inc.freq, inc.pct);
   return {
     kind: 'hourly',
     range: min && max ? `${min}–${max}` : (min ? `${min}+` : '—'),
@@ -539,8 +569,10 @@ function bidSuggestion(job) {
     weekly: rate * hours,
     monthly: rate * hours * 4,
     duration: dur || '1 to 3 months',
+    durationWeeks: weeks,
     increaseFreq: inc.freq,
     increasePct: inc.pct,
+    totalPotential,
   };
 }
 
@@ -556,11 +588,11 @@ function renderBidPanel(bid) {
   ` : `
     <div class="bid-cell"><span class="bid-label">Jenis</span><span class="bid-val">Hourly — Upwork minta rate/jam</span><span class="bid-hint">Rentang client: ${esc(bid.range)}</span></div>
     <div class="bid-cell"><span class="bid-label">Rate disarankan</span><span class="bid-val">$${bid.rate}/jam</span><span class="bid-hint">Tengah rentang client</span></div>
-    <div class="bid-cell"><span class="bid-label">Nilai per minggu</span><span class="bid-val">~$${bid.weekly.toLocaleString()}</span><span class="bid-hint">Pada 20–35 jam/minggu</span></div>
-    <div class="bid-cell"><span class="bid-label">Nilai per bulan</span><span class="bid-val">~$${bid.monthly.toLocaleString()}</span><span class="bid-hint">Estimasi 4 minggu</span></div>
+    <div class="bid-cell"><span class="bid-label">Nilai per minggu (awal)</span><span class="bid-val">~$${bid.weekly.toLocaleString()}</span><span class="bid-hint">Rate awal × 20–35 jam</span></div>
+    <div class="bid-cell"><span class="bid-label">Nilai per bulan (awal)</span><span class="bid-val">~$${bid.monthly.toLocaleString()}</span><span class="bid-hint">Rate awal × 4 minggu</span></div>
     <div class="bid-cell"><span class="bid-label">Naik rate tiap</span><span class="bid-val">${esc(bid.increaseFreq)}</span><span class="bid-hint">Schedule rate increase — ikut durasi kontrak</span></div>
     <div class="bid-cell"><span class="bid-label">Besaran kenaikan</span><span class="bid-val">${esc(bid.increasePct)}%</span><span class="bid-hint">Modest agar mudah disetujui client</span></div>
-    <div class="bid-cell"><span class="bid-label">Durasi</span><span class="bid-val">${esc(bid.duration)}</span><span class="bid-hint">Ikut postingan client</span></div>
+    <div class="bid-cell"><span class="bid-label">Total potensi (durasi)</span><span class="bid-val pos">~$${Math.round(bid.totalPotential || 0).toLocaleString()}</span><span class="bid-hint">±${esc(bid.duration)} — termasuk kenaikan rate ${esc(bid.increaseFreq)} +${esc(bid.increasePct)}%</span></div>
   `;
   el.classList.remove('hidden');
   $('#result-copy-bid').classList.remove('hidden');
@@ -570,7 +602,7 @@ function bidSummaryText(bid) {
   if (!bid) return '';
   const lines = bid.kind === 'fixed'
     ? [`Pembayaran: ${bid.payment}`, `Jumlah bid: $${bid.bid.toFixed(2)}`, `Fee 10%: -$${bid.fee.toFixed(2)}`, `Kamu terima: $${bid.receive.toFixed(2)}`, `Durasi: ${bid.duration}`]
-    : [`Pembayaran: hourly (rate/jam)`, `Rate disarankan: $${bid.rate}/jam`, `Rentang client: ${bid.range}`, `Nilai per minggu (est): ~$${bid.weekly.toLocaleString()}`, `Nilai per bulan (est): ~$${bid.monthly.toLocaleString()}`, `Naik rate: tiap ${bid.increaseFreq} · +${bid.increasePct}%`, `Durasi: ${bid.duration}`];
+    : [`Pembayaran: hourly (rate/jam)`, `Rate disarankan: $${bid.rate}/jam`, `Rentang client: ${bid.range}`, `Nilai per minggu (awal): ~$${bid.weekly.toLocaleString()}`, `Nilai per bulan (awal): ~$${bid.monthly.toLocaleString()}`, `Naik rate: tiap ${bid.increaseFreq} · +${bid.increasePct}%`, `Total potensi (durasi ±${bid.duration}): ~$${Math.round(bid.totalPotential || 0).toLocaleString()} (termasuk kenaikan)`];
   return lines.join('\n');
 }
 
