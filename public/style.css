@@ -421,6 +421,22 @@ body {
   border-radius: 99px;
   flex-shrink: 0;
 }
+.score-group { display: flex; gap: 6px; flex-shrink: 0; }
+.score-pill.cuan { color: var(--yellow); background: color-mix(in srgb, var(--yellow) 14%, transparent); }
+.score-pill.win { color: var(--blue); background: color-mix(in srgb, var(--blue) 14%, transparent); }
+.badge.cuan-badge { color: var(--yellow); border-color: color-mix(in srgb, var(--yellow) 35%, transparent); }
+
+.sort-select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  outline: none;
+  cursor: pointer;
+}
+.sort-select:focus { border-color: var(--accent); }
 
 /* Result modal */
 .modal-wide { width: min(860px, 94vw); }

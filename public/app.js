@@ -10,7 +10,7 @@ const state = {
   logProject: null,
   logs: {},
   env: null,
-  upwork: { jobs: [], dir: null, opencode: false, ai: true, busy: false }
+  upwork: { jobs: [], dir: null, opencode: false, ai: true, busy: false, sort: 'combined' }
 };
 
 /* ---------- helpers ---------- */
@@ -384,7 +384,9 @@ async function pollScanTask(taskId, attempts = 0) {
 }
 
 function renderUpwork() {
-  const jobs = state.upwork.jobs;
+  const jobs = [...state.upwork.jobs];
+  const sortKey = state.upwork.sort === 'cuanScore' ? 'cuanScore' : state.upwork.sort === 'winScore' ? 'winScore' : 'combined';
+  jobs.sort((a, b) => (b[sortKey] ?? 0) - (a[sortKey] ?? 0));
   $('#upwork-empty').classList.toggle('hidden', jobs.length > 0);
   const totalBudget = jobs.filter(j => j.job?.type === 'fixed').reduce((s, j) => s + (j.job.fixedBudget || 0), 0);
   $('#upwork-summary').textContent =
@@ -392,6 +394,11 @@ function renderUpwork() {
   const grid = $('#upwork-grid');
   grid.innerHTML = '';
   for (const jr of jobs) grid.appendChild(renderUpworkCard(jr));
+}
+
+function fmtMoney(v) {
+  const n = Number(v) || 0;
+  return n >= 1000 ? `$${(n / 1000).toFixed(n >= 10000 ? 1 : 2)}k` : `$${n}`;
 }
 
 function renderUpworkCard(jr) {
@@ -405,22 +412,29 @@ function renderUpworkCard(jr) {
   const matchedBadges = (jr.skills || []).map(s =>
     `<span class="badge" title="${esc((jr.matched?.[s] || []).join(', '))}">✓ ${esc(s)}</span>`).join('');
   const verified = client.paymentVerified ? '<span class="badge db online">✓ verified</span>' : '<span class="badge">unverified</span>';
+  const estVal = jr.estValue > 0 ? fmtMoney(jr.estValue) : '—';
+  const win = jr.winScore >= 0 ? `${jr.winScore}%` : '—';
+  const apl = jr.estApplicants > 0 ? `~${jr.estApplicants} pelamar` : '';
 
   card.innerHTML = `
     <div class="card-head">
       <div class="card-name">${esc(j.title || '(tanpa judul)')}</div>
-      <span class="score-pill" title="Skor kecocokan">${jr.score}</span>
+      <div class="score-group">
+        <span class="score-pill cuan" title="Skor cuan (nilai proyek + kualitas client)">💰 ${jr.cuanScore ?? 0}</span>
+        <span class="score-pill win" title="Perkiraan peluang menang (kecocokan + kompetisi + client + kebaruan)">🎯 ${win}</span>
+      </div>
     </div>
     <div class="card-desc" title="${esc(j.description || '')}">${esc(j.description || '')}</div>
     <div class="badges">
       <span class="badge highlight">💵 ${esc(jr.budget || '—')}</span>
+      <span class="badge cuan-badge" title="Estimasi nilai proyek (fixed = budget; hourly = rate × jam × durasi)">💰 ${estVal}</span>
+      ${apl ? `<span class="badge">${esc(apl)}</span>` : ''}
       ${j.duration ? `<span class="badge">${esc(j.duration)}</span>` : ''}
-      ${j.experienceLevel ? `<span class="badge">${esc(j.experienceLevel)}</span>` : ''}
       ${verified}
     </div>
     ${skillBadges ? `<div class="badges">${skillBadges}</div>` : ''}
     ${matchedBadges ? `<div class="badges">${matchedBadges}</div>` : ''}
-    <div class="detected-note">Client: ${esc(client.country || '?')} · rating ${client.rating || '—'} · spent $${client.totalSpent || 0} · hires ${client.totalHires || 0}</div>
+    <div class="detected-note">Skor cocok ${jr.score} · Client: ${esc(client.country || '?')} · spent $${client.totalSpent || 0} · hires ${client.totalHires || 0}</div>
     <div class="card-actions">
       <a class="btn" href="${esc(j.url || '#')}" target="_blank" rel="noopener">↗ Buka Job</a>
       <button class="btn btn-primary" data-proposal="${esc(j.id || '')}">✍️ Proposal</button>
@@ -685,6 +699,7 @@ document.querySelectorAll('.tab').forEach(t =>
 $('#upwork-scan-btn').addEventListener('click', () => scanUpwork(true));
 $('#upwork-match-btn').addEventListener('click', () => scanUpwork(false));
 $('#upwork-ai').addEventListener('change', (e) => { state.upwork.ai = e.target.checked; });
+$('#upwork-sort').addEventListener('change', (e) => { state.upwork.sort = e.target.value; renderUpwork(); });
 $('#upwork-dir-btn').addEventListener('click', () => {
   const p = prompt('Path folder upwork-monitor:', state.upwork.dir || '');
   if (!p) return;

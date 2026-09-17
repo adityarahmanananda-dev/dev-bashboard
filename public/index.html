@@ -66,6 +66,11 @@
           <label class="small muted" title="Proposal ditulis oleh opencode (AI agent) bila tersedia; jika gagal, fallback ke template">
             <input type="checkbox" id="upwork-ai" checked /> Proposal pakai AI (opencode)
           </label>
+          <select id="upwork-sort" class="sort-select" title="Urutkan lowongan">
+            <option value="combined">Gabungan (cuan × peluang)</option>
+            <option value="cuanScore">💰 Paling Cuan</option>
+            <option value="winScore">🎯 Peluang Dapat</option>
+          </select>
           <button id="upwork-scan-btn" class="btn btn-primary">🔍 Scan Lowongan</button>
           <button id="upwork-match-btn" class="btn" title="Match dari hasil fetch terakhir (tanpa buka Chrome)">↺ Match hasil terakhir</button>
         </div>
