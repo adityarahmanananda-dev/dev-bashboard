@@ -82,6 +82,16 @@ Tombol **🛠 Setup** tersedia untuk semua stack yang punya manifest dikenal:
 
 ---
 
+### 💼 Tab Upwork
+Tab **💼 Upwork** di dashboard menghubungkan ke tool [upwork-monitor](https://github.com/adityarahmanananda-dev/upwork-monitor):
+
+- **Scan Lowongan** — fetch lowongan Upwork lewat Chrome kamu yang sudah login (lolos Cloudflare, port debug `9222`) lalu match dengan profil skill.
+- **Match hasil terakhir** — pakai hasil fetch terakhir tanpa membuka Chrome.
+- **✍️ Proposal** — generate draf cover letter per job (pakai opencode bila aktif, fallback template).
+- **🤖 Prompt Portfolio** — generate prompt AI-agent untuk membuat project demo pembuktian (`project-portfolio/`) yang sesuai requirement.
+
+Folder upwork-monitor dikenali otomatis di `~/Projects/upwork-monitor` (ubah via env `UPWORK_MONITOR_DIR` atau tombol **ubah** di panel). Hasil disimpan ke `output/` upwork-monitor.
+
 ## Instalasi
 
 Prasyarat:

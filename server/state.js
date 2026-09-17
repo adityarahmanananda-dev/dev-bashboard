@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 const DATA_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'data');
 const STATE_FILE = path.join(DATA_DIR, 'state.json');
 
-let state = { scanRoot: null, envKind: null, ports: {}, processes: [] };
+let state = { scanRoot: null, envKind: null, upworkDir: null, ports: {}, processes: [] };
 
 export function load() {
   try {
@@ -50,5 +50,10 @@ export function setPort(projectName, port) {
 
 export function setProcesses(list) {
   state.processes = list;
+  save();
+}
+
+export function setUpworkDir(dir) {
+  state.upworkDir = dir || null;
   save();
 }

@@ -12,6 +12,7 @@ import * as portsMod from './ports.js';
 import * as state from './state.js';
 import * as env from './env.js';
 import { depManagerFor, checkReady, buildSteps, venvDir, markInstalled } from './deps.js';
+import upwork from './upwork.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const HOST = '127.0.0.1';
@@ -216,6 +217,7 @@ api.post('/ports/suggest', async (req, res) => {
 api.use((err, req, res, next) => res.status(500).json({ error: err.message }));
 
 app.use('/api', api);
+app.use('/api/upwork', upwork);
 
 function broadcast(msg) {
   const raw = JSON.stringify(msg);

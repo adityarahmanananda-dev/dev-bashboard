@@ -9,7 +9,8 @@ const state = {
   setups: [],
   logProject: null,
   logs: {},
-  env: null
+  env: null,
+  upwork: { jobs: [], dir: null, opencode: false, ai: true, busy: false }
 };
 
 /* ---------- helpers ---------- */
@@ -279,6 +280,190 @@ function openLogs(name) {
   }).catch(() => {});
 }
 
+/* ---------- tabs ---------- */
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  $('#projects-panel').classList.toggle('hidden', name !== 'projects');
+  $('#upwork-panel').classList.toggle('hidden', name !== 'upwork');
+  if (name === 'upwork') loadUpworkStatus();
+}
+
+/* ---------- upwork ---------- */
+
+async function loadUpworkStatus() {
+  try {
+    const s = await api('/upwork/status');
+    state.upwork.dir = s.dir;
+    state.upwork.opencode = !!s.opencode;
+    $('#upwork-dir').textContent = s.dir;
+    $('#upwork-ai').disabled = !s.opencode;
+    if (!s.opencode) {
+      $('#upwork-ai').checked = false;
+      $('#upwork-ai').title = 'opencode tidak terdeteksi — proposal akan pakai template';
+    }
+  } catch (e) {
+    toast(`Gagal ambil status upwork: ${e.message}`, 'error');
+  }
+}
+
+function setBusy(busy, label = '…') {
+  state.upwork.busy = busy;
+  $('#upwork-scan-btn').disabled = busy;
+  $('#upwork-match-btn').disabled = busy;
+  $('#upwork-summary').textContent = busy ? label : '';
+}
+
+async function scanUpwork(fetchNow) {
+  if (state.upwork.busy) return;
+  setBusy(true, fetchNow ? '⏳ Fetch lowongan (butuh Chrome login di :9222)…' : '⏳ Match hasil terakhir…');
+  try {
+    const r = await api('/upwork/scan', { method: 'POST', body: { fetch: fetchNow } });
+    state.upwork.jobs = r.jobs;
+    $('#upwork-dir').textContent = r.dir;
+    renderUpwork();
+  } catch (e) {
+    toast(e.message, 'error');
+    $('#upwork-summary').textContent = e.message;
+  } finally {
+    setBusy(false);
+  }
+}
+
+function renderUpwork() {
+  const jobs = state.upwork.jobs;
+  $('#upwork-empty').classList.toggle('hidden', jobs.length > 0);
+  const totalBudget = jobs.filter(j => j.job?.type === 'fixed').reduce((s, j) => s + (j.job.fixedBudget || 0), 0);
+  $('#upwork-summary').textContent =
+    `${jobs.length} lowongan cocok · total fixed budget $${totalBudget.toLocaleString()} · ${new Date().toLocaleTimeString()}`;
+  const grid = $('#upwork-grid');
+  grid.innerHTML = '';
+  for (const jr of jobs) grid.appendChild(renderUpworkCard(jr));
+}
+
+function renderUpworkCard(jr) {
+  const j = jr.job || {};
+  const card = document.createElement('div');
+  card.className = 'card upwork-card';
+  card.dataset.jobId = j.id || '';
+
+  const client = j.client || {};
+  const skillBadges = (j.skills || []).map(s => `<span class="badge highlight">${esc(s)}</span>`).join('');
+  const matchedBadges = (jr.skills || []).map(s =>
+    `<span class="badge" title="${esc((jr.matched?.[s] || []).join(', '))}">✓ ${esc(s)}</span>`).join('');
+  const verified = client.paymentVerified ? '<span class="badge db online">✓ verified</span>' : '<span class="badge">unverified</span>';
+
+  card.innerHTML = `
+    <div class="card-head">
+      <div class="card-name">${esc(j.title || '(tanpa judul)')}</div>
+      <span class="score-pill" title="Skor kecocokan">${jr.score}</span>
+    </div>
+    <div class="card-desc" title="${esc(j.description || '')}">${esc(j.description || '')}</div>
+    <div class="badges">
+      <span class="badge highlight">💵 ${esc(jr.budget || '—')}</span>
+      ${j.duration ? `<span class="badge">${esc(j.duration)}</span>` : ''}
+      ${j.experienceLevel ? `<span class="badge">${esc(j.experienceLevel)}</span>` : ''}
+      ${verified}
+    </div>
+    ${skillBadges ? `<div class="badges">${skillBadges}</div>` : ''}
+    ${matchedBadges ? `<div class="badges">${matchedBadges}</div>` : ''}
+    <div class="detected-note">Client: ${esc(client.country || '?')} · rating ${client.rating || '—'} · spent $${client.totalSpent || 0} · hires ${client.totalHires || 0}</div>
+    <div class="card-actions">
+      <a class="btn" href="${esc(j.url || '#')}" target="_blank" rel="noopener">↗ Buka Job</a>
+      <button class="btn btn-primary" data-proposal="${esc(j.id || '')}">✍️ Proposal</button>
+      <button class="btn" data-portfolio="${esc(j.id || '')}" title="Buat prompt AI-agent untuk membuat project portfolio pembuktian">🤖 Prompt Portfolio</button>
+    </div>
+  `;
+  return card;
+}
+
+async function genProposal(id) {
+  const jr = state.upwork.jobs.find(x => (x.job?.id || '') === id);
+  if (!jr) return toast('Job tidak ditemukan', 'error');
+  const title = `✍️ Proposal — ${jr.job.title}`;
+  openResult(title, state.upwork.ai ? 'AI (opencode) — menulis…' : 'template', '');
+  $('#result-copy').disabled = true;
+  try {
+    const r = await api('/upwork/proposal', { method: 'POST', body: { job: jr.job, ai: state.upwork.ai } });
+    if (r.taskId) {
+      pollTask(r.taskId, title);
+    } else {
+      openResult(title, `${r.source === 'ai' ? 'AI (opencode)' : 'template'} · ${r.savedTo}`, r.text);
+      $('#result-copy').disabled = false;
+    }
+  } catch (e) {
+    openResult(title, 'gagal', `Error: ${e.message}`);
+    $('#result-copy').disabled = false;
+  }
+}
+
+async function pollTask(taskId, title, attempts = 0) {
+  try {
+    const rec = await api(`/upwork/task/${encodeURIComponent(taskId)}`);
+    if (rec.status === 'running') {
+      if (attempts > 180) {
+        openResult(title, 'gagal', 'Timeout menunggu AI');
+        $('#result-copy').disabled = false;
+        return;
+      }
+      setTimeout(() => pollTask(taskId, title, attempts + 1), 3000);
+      return;
+    }
+    if (rec.status === 'error') {
+      openResult(title, 'gagal', rec.text || 'Task error');
+      $('#result-copy').disabled = false;
+      return;
+    }
+    openResult(title, `${rec.source || 'ai'} · ${rec.savedTo || ''}`, rec.text);
+    $('#result-copy').disabled = false;
+  } catch (e) {
+    if (attempts > 60) {
+      openResult(title, 'gagal', `Error: ${e.message}`);
+      $('#result-copy').disabled = false;
+      return;
+    }
+    setTimeout(() => pollTask(taskId, title, attempts + 1), 3000);
+  }
+}
+
+async function genPortfolioPrompt(id) {
+  const jr = state.upwork.jobs.find(x => (x.job?.id || '') === id);
+  if (!jr) return toast('Job tidak ditemukan', 'error');
+  openResult(`🤖 Prompt Portfolio — ${jr.job.title}`, 'menulis…', '');
+  $('#result-copy').disabled = true;
+  try {
+    const r = await api('/upwork/portfolio-prompt', { method: 'POST', body: { job: jr.job } });
+    openResult(`🤖 Prompt Portfolio — ${jr.job.title}`, `· ${r.savedTo}`, r.text);
+  } catch (e) {
+    openResult('Prompt Portfolio', 'gagal', `Error: ${e.message}`);
+  } finally {
+    $('#result-copy').disabled = false;
+  }
+}
+
+function openResult(title, meta, text) {
+  $('#result-modal-title').textContent = title;
+  $('#result-meta').textContent = meta;
+  $('#result-content').textContent = text;
+  $('#result-modal').classList.remove('hidden');
+}
+
+async function copyResult() {
+  const text = $('#result-content').textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Disalin ke clipboard');
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+    toast('Disalin ke clipboard');
+  }
+}
+
 /* ---------- actions ---------- */
 
 async function startProject(name, native = false) {
@@ -404,7 +589,7 @@ function connectWs() {
 /* ---------- events ---------- */
 
 document.addEventListener('click', (e) => {
-  const t = e.target.closest('[data-start],[data-stop],[data-suggest],[data-logs],[data-nav],[data-native],[data-setup]');
+  const t = e.target.closest('[data-start],[data-stop],[data-suggest],[data-logs],[data-nav],[data-native],[data-setup],[data-proposal],[data-portfolio]');
   if (!t) return;
   if (t.dataset.start) startProject(t.dataset.start);
   else if (t.dataset.native) startProject(t.dataset.native, true);
@@ -413,6 +598,8 @@ document.addEventListener('click', (e) => {
   else if (t.dataset.suggest) suggestPort(t.dataset.suggest);
   else if (t.dataset.logs) openLogs(t.dataset.logs);
   else if (t.dataset.nav) browse(t.dataset.nav);
+  else if (t.dataset.proposal) genProposal(t.dataset.proposal);
+  else if (t.dataset.portfolio) genPortfolioPrompt(t.dataset.portfolio);
 });
 
 document.addEventListener('keydown', (e) => {
@@ -440,6 +627,24 @@ $('#log-close').addEventListener('click', () => {
   state.logProject = null;
 });
 
+document.querySelectorAll('.tab').forEach(t =>
+  t.addEventListener('click', () => switchTab(t.dataset.tab)));
+$('#upwork-scan-btn').addEventListener('click', () => scanUpwork(true));
+$('#upwork-match-btn').addEventListener('click', () => scanUpwork(false));
+$('#upwork-ai').addEventListener('change', (e) => { state.upwork.ai = e.target.checked; });
+$('#upwork-dir-btn').addEventListener('click', () => {
+  const p = prompt('Path folder upwork-monitor:', state.upwork.dir || '');
+  if (!p) return;
+  api('/upwork/dir', { method: 'POST', body: { path: p } })
+    .then(r => { state.upwork.dir = r.dir; $('#upwork-dir').textContent = r.dir; toast('Folder upwork: ' + r.dir); })
+    .catch(e => toast(e.message, 'error'));
+});
+$('#result-close').addEventListener('click', () => $('#result-modal').classList.add('hidden'));
+$('#result-copy').addEventListener('click', copyResult);
+$('#result-modal').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) e.currentTarget.classList.add('hidden');
+});
+
 /* ---------- init ---------- */
 
 (async function init() {
@@ -448,4 +653,5 @@ $('#log-close').addEventListener('click', () => {
   await loadEnv();
   await loadPortsMeta();
   await refresh();
+  await loadUpworkStatus();
 })();
