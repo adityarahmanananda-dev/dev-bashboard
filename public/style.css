@@ -450,3 +450,27 @@ body {
   word-break: break-word;
   background: #0a0c11;
 }
+
+/* Bid suggestion panel */
+.bid-panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent) 5%, var(--bg-raised));
+}
+.bid-cell {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.bid-label { font-size: 10.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+.bid-val { font-size: 14px; font-weight: 650; font-family: var(--mono); }
+.bid-val.pos { color: var(--green); }
+.bid-val.neg { color: var(--red); }
+.bid-hint { font-size: 10.5px; color: var(--text-muted); line-height: 1.35; }

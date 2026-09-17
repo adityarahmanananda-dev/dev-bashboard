@@ -448,23 +448,127 @@ async function genProposal(id) {
   const jr = state.upwork.jobs.find(x => (x.job?.id || '') === id);
   if (!jr) return toast('Job tidak ditemukan', 'error');
   const title = `✍️ Proposal — ${jr.job.title}`;
-  openResult(title, state.upwork.ai ? 'AI (opencode) — menulis…' : 'template', '');
+  openResult(title, state.upwork.ai ? 'AI (opencode) — menulis…' : 'template', '', { bid: bidSuggestion(jr.job) });
   $('#result-copy').disabled = true;
   try {
     const r = await api('/upwork/proposal', { method: 'POST', body: { job: jr.job, ai: state.upwork.ai } });
     if (r.taskId) {
-      pollTask(r.taskId, title);
+      pollTask(r.taskId, title, jr.job.id);
     } else {
-      openResult(title, `${r.source === 'ai' ? 'AI (opencode)' : 'template'} · ${r.savedTo}`, r.text);
+      openResult(title, `${r.source === 'ai' ? 'AI (opencode)' : 'template'} · ${r.savedTo}`, r.text, { bid: bidSuggestion(jr.job) });
       $('#result-copy').disabled = false;
     }
   } catch (e) {
-    openResult(title, 'gagal', `Error: ${e.message}`);
+    openResult(title, 'gagal', `Error: ${e.message}`, { bid: bidSuggestion(jr.job) });
     $('#result-copy').disabled = false;
   }
 }
 
-async function pollTask(taskId, title, attempts = 0) {
+function niceStep(v) {
+  if (v >= 1000) return 50;
+  if (v >= 100) return 10;
+  return 5;
+}
+
+function niceBid(v) {
+  if (!(v > 0)) return 0;
+  const step = niceStep(v);
+  return Math.max(step, Math.round(v / step) * step);
+}
+
+function niceRate(v) {
+  if (!(v > 0)) return 0;
+  return Math.max(5, Math.round(v / 5) * 5);
+}
+
+function engagementHours(engagement) {
+  const e = (engagement || '').toLowerCase();
+  if (e.includes('30+') || e.includes('more than 30')) return 35;
+  if (e.includes('less than 30')) return 20;
+  if (e.includes('30')) return 30;
+  return 25;
+}
+
+function bidSuggestion(job) {
+  const dur = job.duration || '';
+  const fixed = job.type === 'fixed' || Number(job.fixedBudget) > 0;
+  if (fixed) {
+    const budget = Number(job.fixedBudget) || 0;
+    const bid = niceBid(budget * 0.95);
+    const fee = bid * 0.10;
+    const receive = bid - fee;
+    const multiPhase = budget >= 1000 || /1 to 3|3 to 6|more than 6/i.test(dur);
+    return {
+      kind: 'fixed',
+      budget,
+      payment: multiPhase ? 'By milestone' : 'By project',
+      paymentReason: multiPhase
+        ? 'Nilai proyek cukup besar / bertahap — pembayaran per milestone lebih aman & transparan.'
+        : 'Proyek kecil & sekali jadi — By project lebih sederhana dan cepat.',
+      bid,
+      fee,
+      receive,
+      duration: dur || '1 to 3 months',
+      durationReason: 'Ikut durasi yang client cantumkan di postingan.',
+    };
+  }
+  const min = Number(job.hourlyMin) || 0;
+  const max = Number(job.hourlyMax) || 0;
+  const rate = max > min ? niceRate((min + max) / 2) : (min ? niceRate(min) : 0);
+  const hours = engagementHours(job.engagement);
+  return {
+    kind: 'hourly',
+    range: min && max ? `${min}–${max}` : (min ? `${min}+` : '—'),
+    rate,
+    weekly: rate * hours,
+    monthly: rate * hours * 4,
+    duration: dur || '1 to 3 months',
+  };
+}
+
+function renderBidPanel(bid) {
+  const el = $('#result-bid');
+  if (!bid) { el.classList.add('hidden'); $('#result-copy-bid').classList.add('hidden'); return; }
+  el.innerHTML = bid.kind === 'fixed' ? `
+    <div class="bid-cell"><span class="bid-label">Pembayaran</span><span class="bid-val">${esc(bid.payment)}</span><span class="bid-hint">${esc(bid.paymentReason)}</span></div>
+    <div class="bid-cell"><span class="bid-label">Jumlah bid</span><span class="bid-val">$${bid.bid.toFixed(2)}</span><span class="bid-hint">95% dari budget client ($${bid.budget.toFixed(2)})</span></div>
+    <div class="bid-cell"><span class="bid-label">Fee 10%</span><span class="bid-val neg">-$${bid.fee.toFixed(2)}</span><span class="bid-hint">Freelancer Service Fee</span></div>
+    <div class="bid-cell"><span class="bid-label">Kamu terima</span><span class="bid-val pos">$${bid.receive.toFixed(2)}</span><span class="bid-hint">Setelah fee</span></div>
+    <div class="bid-cell"><span class="bid-label">Durasi</span><span class="bid-val">${esc(bid.duration)}</span><span class="bid-hint">${esc(bid.durationReason)}</span></div>
+  ` : `
+    <div class="bid-cell"><span class="bid-label">Jenis</span><span class="bid-val">Hourly — Upwork minta rate/jam</span><span class="bid-hint">Rentang client: ${esc(bid.range)}</span></div>
+    <div class="bid-cell"><span class="bid-label">Rate disarankan</span><span class="bid-val">$${bid.rate}/jam</span><span class="bid-hint">Tengah rentang client</span></div>
+    <div class="bid-cell"><span class="bid-label">Nilai per minggu</span><span class="bid-val">~$${bid.weekly.toLocaleString()}</span><span class="bid-hint">Pada 20–35 jam/minggu</span></div>
+    <div class="bid-cell"><span class="bid-label">Nilai per bulan</span><span class="bid-val">~$${bid.monthly.toLocaleString()}</span><span class="bid-hint">Estimasi 4 minggu</span></div>
+    <div class="bid-cell"><span class="bid-label">Durasi</span><span class="bid-val">${esc(bid.duration)}</span><span class="bid-hint">Ikut postingan client</span></div>
+  `;
+  el.classList.remove('hidden');
+  $('#result-copy-bid').classList.remove('hidden');
+}
+
+function bidSummaryText(bid) {
+  if (!bid) return '';
+  const lines = bid.kind === 'fixed'
+    ? [`Pembayaran: ${bid.payment}`, `Jumlah bid: $${bid.bid.toFixed(2)}`, `Fee 10%: -$${bid.fee.toFixed(2)}`, `Kamu terima: $${bid.receive.toFixed(2)}`, `Durasi: ${bid.duration}`]
+    : [`Pembayaran: hourly (rate/jam)`, `Rate disarankan: $${bid.rate}/jam`, `Rentang client: ${bid.range}`, `Nilai per minggu (est): ~$${bid.weekly.toLocaleString()}`, `Nilai per bulan (est): ~$${bid.monthly.toLocaleString()}`, `Durasi: ${bid.duration}`];
+  return lines.join('\n');
+}
+
+async function copyBid() {
+  const el = $('#result-bid');
+  const title = $('#result-modal-title').textContent.replace(/^✍️ Proposal — /, '');
+  const text = `Saran Bid — ${title}\n${bidSummaryText(currentBid)}`;
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Saran bid disalin');
+  } catch {
+    toast('Gagal menyalin', 'error');
+  }
+}
+
+let currentBid = null;
+
+async function pollTask(taskId, title, jobId, attempts = 0) {
   try {
     const rec = await api(`/upwork/task/${encodeURIComponent(taskId)}`);
     if (rec.status === 'running') {
@@ -473,7 +577,7 @@ async function pollTask(taskId, title, attempts = 0) {
         $('#result-copy').disabled = false;
         return;
       }
-      setTimeout(() => pollTask(taskId, title, attempts + 1), 3000);
+      setTimeout(() => pollTask(taskId, title, jobId, attempts + 1), 3000);
       return;
     }
     if (rec.status === 'error') {
@@ -481,7 +585,8 @@ async function pollTask(taskId, title, attempts = 0) {
       $('#result-copy').disabled = false;
       return;
     }
-    openResult(title, `${rec.source || 'ai'} · ${rec.savedTo || ''}`, rec.text);
+    const jr = state.upwork.jobs.find(x => (x.job?.id || '') === jobId);
+    openResult(title, `${rec.source || 'ai'} · ${rec.savedTo || ''}`, rec.text, { bid: jr ? bidSuggestion(jr.job) : null });
     $('#result-copy').disabled = false;
   } catch (e) {
     if (attempts > 60) {
@@ -489,7 +594,7 @@ async function pollTask(taskId, title, attempts = 0) {
       $('#result-copy').disabled = false;
       return;
     }
-    setTimeout(() => pollTask(taskId, title, attempts + 1), 3000);
+    setTimeout(() => pollTask(taskId, title, jobId, attempts + 1), 3000);
   }
 }
 
@@ -508,10 +613,12 @@ async function genPortfolioPrompt(id) {
   }
 }
 
-function openResult(title, meta, text) {
+function openResult(title, meta, text, opts = {}) {
   $('#result-modal-title').textContent = title;
   $('#result-meta').textContent = meta;
   $('#result-content').textContent = text;
+  currentBid = opts.bid || null;
+  renderBidPanel(currentBid);
   $('#result-modal').classList.remove('hidden');
 }
 
@@ -709,6 +816,7 @@ $('#upwork-dir-btn').addEventListener('click', () => {
 });
 $('#result-close').addEventListener('click', () => $('#result-modal').classList.add('hidden'));
 $('#result-copy').addEventListener('click', copyResult);
+$('#result-copy-bid').addEventListener('click', copyBid);
 $('#result-modal').addEventListener('click', (e) => {
   if (e.target === e.currentTarget) e.currentTarget.classList.add('hidden');
 });
