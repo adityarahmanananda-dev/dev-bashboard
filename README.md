@@ -83,14 +83,50 @@ Tombol **🛠 Setup** tersedia untuk semua stack yang punya manifest dikenal:
 ---
 
 ### 💼 Tab Upwork
-Tab **💼 Upwork** di dashboard menghubungkan ke tool [upwork-monitor](https://github.com/adityarahmanananda-dev/upwork-monitor):
+Tab **💼 Upwork** menghubungkan ke tool [upwork-monitor](https://github.com/adityarahmanananda-dev/upwork-monitor) — monitor lowongan Upwork end-to-end:
 
-- **Scan Lowongan** — fetch lowongan Upwork lewat Chrome kamu yang sudah login (lolos Cloudflare, port debug `9222`) lalu match dengan profil skill.
-- **Match hasil terakhir** — pakai hasil fetch terakhir tanpa membuka Chrome.
-- **✍️ Proposal** — generate draf cover letter per job (pakai opencode bila aktif, fallback template).
-- **🤖 Prompt Portfolio** — generate prompt AI-agent untuk membuat project demo pembuktian (`project-portfolio/`) yang sesuai requirement.
+- **🔍 Scan Lowongan** — fetch feed Upwork lewat Chrome kamu yang sudah login (lolos Cloudflare, port debug `9222`), **async dengan progress per halaman**, lalu match dengan profil skill.
+- **↺ Match hasil terakhir** — pakai hasil fetch terakhir tanpa membuka Chrome (instan).
+- **📊 Sortir** — `Gabungan` (cuan×40% + peluang×60%), `💰 Paling Cuan`, `🎯 Peluang Dapat`. Badge per kartu: estimasi nilai, % peluang, estimasi pelamar.
+- **✍️ Proposal** — draf cover letter + **panel saran bid**: metode bayar (milestone/project), jumlah bid (95% budget), fee 10%, yang kamu terima, durasi, dan *schedule rate increase* (frekuensi + %) untuk job hourly. Proposal AI (opencode) **di-cache** per job — klik ulang memakai yang sudah ada (tombol **↻ Buat Baru** untuk regenerate).
+- **🤖 Prompt Portfolio** — prompt AI-agent untuk membuat project demo pembuktian (`project-portfolio/`) yang sesuai requirement lowongan.
 
 Folder upwork-monitor dikenali otomatis di `~/Projects/upwork-monitor` (ubah via env `UPWORK_MONITOR_DIR` atau tombol **ubah** di panel). Hasil disimpan ke `output/` upwork-monitor.
+
+---
+
+## Cara Kerja
+
+```
+Browser (127.0.0.1:<port>)
+   │  WebSocket (log realtime, status)
+   ▼
+server/index.js  (Express + ws)
+   ├─ /api/*            scanner → runner → docker → ports → state
+   └─ /api/upwork/*     upwork.js → spawn upwork-monitor (Go CLI)
+                              ├─ scan (fetch via Chrome CDP :9222 → match → skor)
+                              ├─ jobs / proposal / portfolio-prompt
+                              └─ task polling (progres scan, hasil AI async)
+```
+
+- **Tab Project**: `scanner.js` deteksi stack & database → `runner.js` kelola
+  lifecycle proses (native/docker, pgid, adopsi, persist) → port anti-tabrakan
+  lewat `ports.js` → UI vanilla JS di `public/` di-refresh via REST + WebSocket.
+- **Tab Upwork**: `server/upwork.js` memanggil binary Go `upwork-monitor`
+  (`run`/`jobs`/`proposal`/`portfolio-prompt`). Scan & proposal AI dijalankan
+  **async** (task + polling) supaya UI tidak menggantung. Proposal & prompt
+  disimpan ke `output/` upwork-monitor (`proposals.json` = index cache).
+
+## Stack Teknologi
+
+| Lapisan | Teknologi |
+|---|---|
+| Backend | **Node.js ≥18**, Express, ws (WebSocket) |
+| Frontend | **Vanilla JS** (`public/`), tanpa build step — HTML/CSS/JS polos |
+| Integrasi Upwork | Binary Go [`upwork-monitor`](https://github.com/adityarahmanananda-dev/upwork-monitor) + [`upwork-feed-fetcher`](https://github.com/doonfrs/upwork-feed-fetcher) (Chrome DevTools Protocol) |
+| AI (opsional) | `opencode` CLI (proposal cover letter) |
+| Persistensi | JSON di `data/` (state, ports, proses) + `output/` upwork-monitor |
+| Lainnya | Docker Compose (opsional), Chrome (untuk fetch Upwork) |
 
 ## Instalasi
 
@@ -144,6 +180,7 @@ dev-bashboard/
 │   ├── runner.js          Lifecycle proses (spawn/pgid/adopsi/persist)
 │   ├── docker.js          Helper compose: up/status/down/log/override
 │   ├── ports.js           Cek listening, reserved list, sugesti port
+│   ├── upwork.js          Integrasi upwork-monitor: scan/proposal/prompt/task
 │   └── state.js           Persistensi state (folder scan, pilihan port)
 ├── public/                Frontend vanilla JS (tanpa build step)
 └── data/                  Runtime only (di-gitignore): log, state, overrides
@@ -159,6 +196,11 @@ API ringkas:
 | `GET /api/projects/:name/logs` | Ambil log |
 | `GET /api/ports/used` · `POST /api/ports/suggest` | Info & sugesti port |
 | `GET /api/browse` · `POST /api/scan-root` | Folder picker |
+| `GET /api/upwork/status` | Status folder upwork-monitor, bin, opencode |
+| `POST /api/upwork/scan` | Fetch (`{fetch:true}` → taskId async) atau match (`{fetch:false}`) |
+| `POST /api/upwork/proposal` | Draf proposal `{ job, ai, force }` (cache-aware) |
+| `POST /api/upwork/portfolio-prompt` | Prompt AI-agent `{ job }` |
+| `GET /api/upwork/task/:id` | Status task (progress scan / hasil AI) |
 
 ## Catatan
 
