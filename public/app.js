@@ -495,6 +495,15 @@ function engagementHours(engagement) {
   return 25;
 }
 
+function rateIncrease(dur, rate) {
+  const d = (dur || '').toLowerCase();
+  const freq = d.includes('more than 6') || d.includes('6+') || d.includes('3 to 6')
+    ? 'Every 6 months'
+    : 'Every year';
+  const pct = rate >= 60 ? 5 : 10;
+  return { freq, pct };
+}
+
 function bidSuggestion(job) {
   const dur = job.duration || '';
   const fixed = job.type === 'fixed' || Number(job.fixedBudget) > 0;
@@ -522,6 +531,7 @@ function bidSuggestion(job) {
   const max = Number(job.hourlyMax) || 0;
   const rate = max > min ? niceRate((min + max) / 2) : (min ? niceRate(min) : 0);
   const hours = engagementHours(job.engagement);
+  const inc = rateIncrease(dur, rate);
   return {
     kind: 'hourly',
     range: min && max ? `${min}–${max}` : (min ? `${min}+` : '—'),
@@ -529,6 +539,8 @@ function bidSuggestion(job) {
     weekly: rate * hours,
     monthly: rate * hours * 4,
     duration: dur || '1 to 3 months',
+    increaseFreq: inc.freq,
+    increasePct: inc.pct,
   };
 }
 
@@ -546,6 +558,8 @@ function renderBidPanel(bid) {
     <div class="bid-cell"><span class="bid-label">Rate disarankan</span><span class="bid-val">$${bid.rate}/jam</span><span class="bid-hint">Tengah rentang client</span></div>
     <div class="bid-cell"><span class="bid-label">Nilai per minggu</span><span class="bid-val">~$${bid.weekly.toLocaleString()}</span><span class="bid-hint">Pada 20–35 jam/minggu</span></div>
     <div class="bid-cell"><span class="bid-label">Nilai per bulan</span><span class="bid-val">~$${bid.monthly.toLocaleString()}</span><span class="bid-hint">Estimasi 4 minggu</span></div>
+    <div class="bid-cell"><span class="bid-label">Naik rate tiap</span><span class="bid-val">${esc(bid.increaseFreq)}</span><span class="bid-hint">Schedule rate increase — ikut durasi kontrak</span></div>
+    <div class="bid-cell"><span class="bid-label">Besaran kenaikan</span><span class="bid-val">${esc(bid.increasePct)}%</span><span class="bid-hint">Modest agar mudah disetujui client</span></div>
     <div class="bid-cell"><span class="bid-label">Durasi</span><span class="bid-val">${esc(bid.duration)}</span><span class="bid-hint">Ikut postingan client</span></div>
   `;
   el.classList.remove('hidden');
@@ -556,7 +570,7 @@ function bidSummaryText(bid) {
   if (!bid) return '';
   const lines = bid.kind === 'fixed'
     ? [`Pembayaran: ${bid.payment}`, `Jumlah bid: $${bid.bid.toFixed(2)}`, `Fee 10%: -$${bid.fee.toFixed(2)}`, `Kamu terima: $${bid.receive.toFixed(2)}`, `Durasi: ${bid.duration}`]
-    : [`Pembayaran: hourly (rate/jam)`, `Rate disarankan: $${bid.rate}/jam`, `Rentang client: ${bid.range}`, `Nilai per minggu (est): ~$${bid.weekly.toLocaleString()}`, `Nilai per bulan (est): ~$${bid.monthly.toLocaleString()}`, `Durasi: ${bid.duration}`];
+    : [`Pembayaran: hourly (rate/jam)`, `Rate disarankan: $${bid.rate}/jam`, `Rentang client: ${bid.range}`, `Nilai per minggu (est): ~$${bid.weekly.toLocaleString()}`, `Nilai per bulan (est): ~$${bid.monthly.toLocaleString()}`, `Naik rate: tiap ${bid.increaseFreq} · +${bid.increasePct}%`, `Durasi: ${bid.duration}`];
   return lines.join('\n');
 }
 
