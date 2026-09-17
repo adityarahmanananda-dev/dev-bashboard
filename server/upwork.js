@@ -80,8 +80,38 @@ function startTask(cmd, args, opts = {}) {
     }
     rec.status = 'done';
     rec.text = (opts.parse ? opts.parse(stdout || '') : opts.clean ? stripAnsi(stdout || '') : (stdout || '')).trim();
+    if (opts.after) {
+      try { opts.after(rec); } catch (e) { console.error('[upwork] after task:', e.message); }
+    }
   }).stdin?.end(opts.input != null ? opts.input : '');
   return id;
+}
+
+function proposalsIndexPath() {
+  return path.join(upworkDir(), 'output', 'proposals.json');
+}
+
+function readIndex() {
+  try { return JSON.parse(fs.readFileSync(proposalsIndexPath(), 'utf8')); } catch { return {}; }
+}
+
+function writeIndex(obj) {
+  try {
+    fs.mkdirSync(path.dirname(proposalsIndexPath()), { recursive: true });
+    fs.writeFileSync(proposalsIndexPath(), JSON.stringify(obj, null, 2));
+  } catch {}
+}
+
+function jobKey(job) {
+  return job?.id || job?.url || job?.title || 'unknown';
+}
+
+function saveProposal(job, text, source) {
+  const savedTo = appendOutput('proposals', job.title, text);
+  const idx = readIndex();
+  idx[jobKey(job)] = { title: job.title, text, source, savedTo, createdAt: new Date().toISOString() };
+  writeIndex(idx);
+  return savedTo;
 }
 
 let currentScanId = null;
@@ -301,16 +331,22 @@ router.post('/proposal', async (req, res) => {
   try {
     if (!await ensureBinary()) return res.status(500).json({ error: 'Gagal build upwork-monitor' });
 
+    const cached = readIndex()[jobKey(job)];
+    if (cached && !req.body?.force) {
+      return res.json({ text: cached.text, source: cached.source, savedTo: cached.savedTo, cached: true });
+    }
+
     if (useAI) {
       const id = startTask(oc, ['run', '--format', 'json', buildAIPrompt(job)],
-        { cwd: upworkDir(), source: 'ai', parse: parseOpenCodeJSON, timeout: 600000 });
+        { cwd: upworkDir(), source: 'ai', parse: parseOpenCodeJSON, timeout: 600000,
+          after: (rec) => { rec.savedTo = saveProposal(job, rec.text, 'ai'); } });
       return res.json({ taskId: id });
     }
 
     const r = await runNow(resolveBin('upwork-monitor'), ['proposal'], { input: JSON.stringify(job), timeout: 30000 });
     if (r.code !== 0) return res.status(502).json({ error: 'Proposal gagal: ' + (r.stderr || '') });
     const text = r.stdout.trim();
-    const savedTo = appendOutput('proposals', job.title, text);
+    const savedTo = saveProposal(job, text, 'template');
     res.json({ text, source: 'template', savedTo });
   } catch (e) {
     res.status(500).json({ error: e.message });

@@ -444,16 +444,22 @@ function renderUpworkCard(jr) {
   return card;
 }
 
-async function genProposal(id) {
+async function genProposal(id, force = false) {
   const jr = state.upwork.jobs.find(x => (x.job?.id || '') === id);
   if (!jr) return toast('Job tidak ditemukan', 'error');
   const title = `✍️ Proposal — ${jr.job.title}`;
+  $('#result-regenerate').classList.add('hidden');
   openResult(title, state.upwork.ai ? 'AI (opencode) — menulis…' : 'template', '', { bid: bidSuggestion(jr.job) });
   $('#result-copy').disabled = true;
   try {
-    const r = await api('/upwork/proposal', { method: 'POST', body: { job: jr.job, ai: state.upwork.ai } });
+    const r = await api('/upwork/proposal', { method: 'POST', body: { job: jr.job, ai: state.upwork.ai, force } });
     if (r.taskId) {
       pollTask(r.taskId, title, jr.job.id);
+    } else if (r.cached) {
+      openResult(title, `${r.source === 'ai' ? 'AI' : 'template'} (sudah ada) · ${r.savedTo}`, r.text, { bid: bidSuggestion(jr.job) });
+      $('#result-copy').disabled = false;
+      $('#result-regenerate').classList.remove('hidden');
+      $('#result-regenerate').dataset.jobId = id;
     } else {
       openResult(title, `${r.source === 'ai' ? 'AI (opencode)' : 'template'} · ${r.savedTo}`, r.text, { bid: bidSuggestion(jr.job) });
       $('#result-copy').disabled = false;
@@ -585,6 +591,7 @@ async function pollTask(taskId, title, jobId, attempts = 0) {
       $('#result-copy').disabled = false;
       return;
     }
+    $('#result-regenerate').classList.add('hidden');
     const jr = state.upwork.jobs.find(x => (x.job?.id || '') === jobId);
     openResult(title, `${rec.source || 'ai'} · ${rec.savedTo || ''}`, rec.text, { bid: jr ? bidSuggestion(jr.job) : null });
     $('#result-copy').disabled = false;
@@ -617,6 +624,7 @@ function openResult(title, meta, text, opts = {}) {
   $('#result-modal-title').textContent = title;
   $('#result-meta').textContent = meta;
   $('#result-content').textContent = text;
+  $('#result-regenerate').classList.add('hidden');
   currentBid = opts.bid || null;
   renderBidPanel(currentBid);
   $('#result-modal').classList.remove('hidden');
@@ -817,6 +825,10 @@ $('#upwork-dir-btn').addEventListener('click', () => {
 $('#result-close').addEventListener('click', () => $('#result-modal').classList.add('hidden'));
 $('#result-copy').addEventListener('click', copyResult);
 $('#result-copy-bid').addEventListener('click', copyBid);
+$('#result-regenerate').addEventListener('click', (e) => {
+  const jobId = e.currentTarget.dataset.jobId;
+  if (jobId) genProposal(jobId, true);
+});
 $('#result-modal').addEventListener('click', (e) => {
   if (e.target === e.currentTarget) e.currentTarget.classList.add('hidden');
 });
