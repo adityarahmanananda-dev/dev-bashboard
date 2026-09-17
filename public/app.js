@@ -316,17 +316,70 @@ function setBusy(busy, label = '…') {
 
 async function scanUpwork(fetchNow) {
   if (state.upwork.busy) return;
-  setBusy(true, fetchNow ? '⏳ Fetch lowongan (butuh Chrome login di :9222)…' : '⏳ Match hasil terakhir…');
+  if (fetchNow) {
+    setBusy(true, '⏳ Menyiapkan fetch…');
+    try {
+      const r = await api('/upwork/scan', { method: 'POST', body: { fetch: true } });
+      if (r.taskId) pollScanTask(r.taskId);
+      else await applyScanResult(r);
+    } catch (e) {
+      toast(e.message, 'error');
+      $('#upwork-summary').textContent = e.message;
+      setBusy(false);
+    }
+    return;
+  }
+  setBusy(true, '⏳ Match hasil terakhir…');
   try {
-    const r = await api('/upwork/scan', { method: 'POST', body: { fetch: fetchNow } });
-    state.upwork.jobs = r.jobs;
-    $('#upwork-dir').textContent = r.dir;
-    renderUpwork();
+    const r = await api('/upwork/scan', { method: 'POST', body: { fetch: false } });
+    await applyScanResult(r, 'Match selesai');
   } catch (e) {
     toast(e.message, 'error');
     $('#upwork-summary').textContent = e.message;
   } finally {
     setBusy(false);
+  }
+}
+
+async function applyScanResult(r, label = 'Scan selesai') {
+  state.upwork.jobs = r.jobs || [];
+  $('#upwork-dir').textContent = r.dir;
+  renderUpwork();
+  const n = (r.jobs || []).length;
+  toast(`${label}: ${n} lowongan cocok`);
+}
+
+async function pollScanTask(taskId, attempts = 0) {
+  let rec;
+  try {
+    rec = await api(`/upwork/task/${encodeURIComponent(taskId)}`);
+  } catch {
+    if (attempts > 150) { toast('Gagal memantau scan', 'error'); setBusy(false); return; }
+    setTimeout(() => pollScanTask(taskId, attempts + 1), 3000);
+    return;
+  }
+  const p = rec.progress || {};
+  $('#upwork-summary').textContent =
+    `⏳ Scan: ${p.done ?? '?'}/${p.total ?? '?'} halaman diproses — ${rec.lastLine || '…'}`;
+  if (rec.status === 'running') {
+    if (attempts > 300) { toast('Timeout scan', 'error'); setBusy(false); return; }
+    setTimeout(() => pollScanTask(taskId, attempts + 1), 3000);
+    return;
+  }
+  if (rec.status === 'error') {
+    const msg = rec.lastLine || 'Scan gagal';
+    toast('Scan gagal', 'error');
+    $('#upwork-summary').textContent = msg;
+    setBusy(false);
+    return;
+  }
+  setBusy(false);
+  try {
+    const r = await api('/upwork/scan', { method: 'POST', body: { fetch: false } });
+    await applyScanResult(r);
+  } catch (e) {
+    toast(e.message, 'error');
+    $('#upwork-summary').textContent = e.message;
   }
 }
 

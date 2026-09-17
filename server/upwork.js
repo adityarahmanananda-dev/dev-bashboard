@@ -1,5 +1,5 @@
 import express from 'express';
-import { execFile, execFileSync } from 'child_process';
+import { execFile, execFileSync, spawn } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -81,6 +81,76 @@ function startTask(cmd, args, opts = {}) {
     rec.status = 'done';
     rec.text = (opts.parse ? opts.parse(stdout || '') : opts.clean ? stripAnsi(stdout || '') : (stdout || '')).trim();
   }).stdin?.end(opts.input != null ? opts.input : '');
+  return id;
+}
+
+let currentScanId = null;
+
+function searchNames() {
+  try {
+    const txt = fs.readFileSync(path.join(upworkDir(), 'config.yaml'), 'utf8');
+    const start = txt.indexOf('searches:');
+    if (start < 0) return [];
+    const end = txt.indexOf('\noutput:', start);
+    const section = txt.slice(start, end < 0 ? undefined : end);
+    return [...section.matchAll(/^\s*-\s+name:\s*["']([^"']+)["']/gm)].map(m => m[1]);
+  } catch { return []; }
+}
+
+function scanProgress(rec) {
+  const names = rec.names || [];
+  const dir = path.join(upworkDir(), 'fetch_output');
+  let done = 0;
+  for (const n of names) {
+    try {
+      const st = fs.statSync(path.join(dir, n + '.json'));
+      if (st.mtimeMs >= rec.startedAt) done++;
+    } catch {}
+  }
+  return { done, total: names.length };
+}
+
+function startFetchTask() {
+  const id = 'scan_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  currentScanId = id;
+  const rec = {
+    kind: 'scan',
+    status: 'running',
+    startedAt: Date.now(),
+    names: searchNames(),
+    lastLine: 'menyiapkan Chrome…',
+    progress: null,
+    exitCode: null,
+  };
+  tasks.set(id, rec);
+
+  const child = spawn(resolveBin('upwork-monitor'), ['run'], {
+    cwd: upworkDir(),
+    env: { ...process.env },
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const onData = (buf) => {
+    const lines = buf.toString().split('\n').filter(Boolean);
+    if (lines.length) rec.lastLine = lines[lines.length - 1].trim();
+  };
+  child.stdout.on('data', onData);
+  child.stderr.on('data', onData);
+
+  const killTimer = setTimeout(() => {
+    try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+  }, 300000);
+  child.on('close', (code) => {
+    clearTimeout(killTimer);
+    rec.exitCode = code;
+    rec.status = code === 0 ? 'done' : 'error';
+    if (code === 0) rec.lastLine = 'fetch selesai';
+  });
+  child.on('error', (err) => {
+    clearTimeout(killTimer);
+    rec.status = 'error';
+    rec.lastLine = 'gagal spawn: ' + err.message;
+  });
   return id;
 }
 
@@ -196,18 +266,17 @@ router.post('/scan', async (req, res) => {
     if (!await ensureBinary()) {
       return res.status(500).json({ error: `Gagal build upwork-monitor di ${upworkDir()}` });
     }
+
     if (doFetch) {
       if (!await ensureFetcher()) {
         return res.status(500).json({ error: 'Gagal menyiapkan upwork-feed-fetcher' });
       }
-      const r = await runNow(resolveBin('upwork-monitor'), ['run'], { timeout: 300000 });
-      if (r.code !== 0) {
-        const hint = /attach|chrome|login|cloudflare/i.test(r.stderr)
-          ? ' Jalankan Chrome dulu: google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/.upwork-attach-profile" lalu login Upwork.'
-          : '';
-        return res.status(502).json({ error: 'Fetch gagal: ' + (r.stderr || r.stdout || 'unknown error') + hint });
-      }
+      const running = currentScanId && tasks.get(currentScanId);
+      if (running && running.status === 'running') return res.json({ taskId: currentScanId });
+      const id = startFetchTask();
+      return res.json({ taskId: id });
     }
+
     const r2 = await runNow(resolveBin('upwork-monitor'), ['jobs']);
     let jobs = [];
     try { jobs = JSON.parse(r2.stdout || '[]'); } catch { jobs = []; }
@@ -215,6 +284,13 @@ router.post('/scan', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+router.get('/task/:id', (req, res) => {
+  const rec = tasks.get(req.params.id);
+  if (!rec) return res.status(404).json({ error: 'Task tidak ditemukan' });
+  if (rec.kind === 'scan') rec.progress = scanProgress(rec);
+  res.json(rec);
 });
 
 router.post('/proposal', async (req, res) => {
