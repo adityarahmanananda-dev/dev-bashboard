@@ -10,6 +10,12 @@ Dashboard lokal untuk developer: scan folder project, deteksi **stack** dan **da
 
 Semua berjalan di `127.0.0.1` (tidak terekspos ke jaringan), tanpa akun, tanpa cloud.
 
+## Screenshot
+
+![UI demo (data dummy)](docs/screenshot.png)
+
+> Screenshot mockup UI dengan data dummy — bukan data riil.
+
 ---
 
 ## Fitur
