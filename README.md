@@ -1,5 +1,7 @@
 # DevBashboard
 
+[![CI](https://github.com/adityarahmanananda-dev/dev-bashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/adityarahmanananda-dev/dev-bashboard/actions/workflows/ci.yml)
+
 ```
 $_  DevBashboard
 ```
