@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 const DATA_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'data');
 const STATE_FILE = path.join(DATA_DIR, 'state.json');
 
+let state = { scanRoot: null, envKind: null, ports: {}, processes: [] };
 
 export function load() {
   try {
