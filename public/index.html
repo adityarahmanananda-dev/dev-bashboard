@@ -20,7 +20,6 @@
     <div class="topbar-actions">
       <nav class="tabs">
         <button id="tab-projects" class="tab active" data-tab="projects">🧱 Project</button>
-        <button id="tab-upwork" class="tab" data-tab="upwork">💼 Upwork</button>
       </nav>
       <button id="env-btn" class="env-chip" title="Lingkungan OS yang dipakai — ubah bila perlu">…</button>
       <span id="ws-status" class="ws-status" title="Koneksi ke server">●</span>
@@ -53,35 +52,6 @@
       </div>
     </section>
 
-    <section id="upwork-panel" class="upwork-panel hidden">
-      <div class="upwork-toolbar">
-        <div class="upwork-head">
-          <strong>Upwork Monitor</strong>
-          <div>
-            <span id="upwork-dir" class="muted small mono">…</span>
-            <button id="upwork-dir-btn" class="edit-hint" title="Ganti folder upwork-monitor">ubah</button>
-          </div>
-        </div>
-        <div class="upwork-actions">
-          <label class="small muted" title="Proposal ditulis oleh opencode (AI agent) bila tersedia; jika gagal, fallback ke template">
-            <input type="checkbox" id="upwork-ai" checked /> Proposal pakai AI (opencode)
-          </label>
-          <select id="upwork-sort" class="sort-select" title="Urutkan lowongan">
-            <option value="combined">Gabungan (cuan × peluang)</option>
-            <option value="cuanScore">💰 Paling Cuan</option>
-            <option value="winScore">🎯 Peluang Dapat</option>
-          </select>
-          <button id="upwork-scan-btn" class="btn btn-primary">🔍 Scan Lowongan</button>
-          <button id="upwork-match-btn" class="btn" title="Match dari hasil fetch terakhir (tanpa buka Chrome)">↺ Match hasil terakhir</button>
-        </div>
-      </div>
-      <div id="upwork-summary" class="summary-bar"></div>
-      <div id="upwork-grid" class="projects-grid"></div>
-      <div id="upwork-empty" class="empty-state hidden">
-        <p>Belum ada data lowongan.</p>
-        <p class="muted">Klik <strong>🔍 Scan Lowongan</strong> (butuh Chrome login Upwork di port 9222) atau <strong>↺ Match hasil terakhir</strong>.</p>
-      </div>
-    </section>
 
     <aside class="sidebar">
       <h2>Port Terpakai</h2>
@@ -131,24 +101,6 @@
       <div class="modal-footer">
         <button id="env-save" class="btn btn-primary">Simpan</button>
       </div>
-    </div>
-  </div>
-
-  <!-- Modal hasil proposal / prompt -->
-  <div id="result-modal" class="modal-overlay hidden">
-    <div class="modal modal-wide">
-      <div class="modal-header">
-        <strong id="result-modal-title">Hasil</strong>
-        <div class="log-actions">
-          <span id="result-meta" class="muted small"></span>
-          <button id="result-regenerate" class="btn hidden" title="Buat proposal baru lagi (abaikan yang sudah ada)">↻ Buat Baru</button>
-          <button id="result-copy-bid" class="btn hidden" title="Salin ringkasan saran bid">💰 Salin Bid</button>
-          <button id="result-copy" class="btn">⧉ Salin</button>
-          <button id="result-close" class="btn btn-ghost">✕</button>
-        </div>
-      </div>
-      <div id="result-bid" class="bid-panel hidden"></div>
-      <pre id="result-content" class="result-content mono"></pre>
     </div>
   </div>
 
