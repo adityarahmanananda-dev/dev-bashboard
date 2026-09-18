@@ -50,7 +50,7 @@ function findVenv(dir) {
   return null;
 }
 
-const NESTED_DIRS = ['backend', 'server', 'src', 'client', 'frontend', 'app'];
+const NESTED_DIRS = ['backend', 'server', 'src', 'client', 'frontend', 'app', 'web'];
 
 function findNestedFile(dir, filename) {
   for (const sub of NESTED_DIRS) {
@@ -81,7 +81,7 @@ function detectPortInFiles(dir, depth = 1) {
     if (envPort) found.push(parseInt(envPort[1], 10));
   }
   if (depth > 0) {
-    for (const sub of ['backend', 'server', 'src', 'client', 'app']) {
+    for (const sub of ['backend', 'server', 'src', 'client', 'app', 'web']) {
       const subDir = path.join(dir, sub);
       try {
         if (fs.statSync(subDir).isDirectory()) found.push(...detectPortInFiles(subDir, 0));
@@ -149,8 +149,9 @@ function scanNode(dir) {
   let root = dir;
   let pkgPath = path.join(dir, 'package.json');
   let prefixArgs = [];
+  let nested = null;
   if (!exists(pkgPath)) {
-    const nested = findNestedFile(dir, 'package.json');
+    nested = findNestedFile(dir, 'package.json');
     if (!nested) return null;
     root = path.dirname(nested.file);
     pkgPath = nested.file;
@@ -168,17 +169,20 @@ function scanNode(dir) {
   if (deps.react || deps.vue || deps.svelte) stacks.push(deps.react ? 'React' : deps.vue ? 'Vue' : 'Svelte');
 
   const scripts = pkg.scripts || {};
-  const scriptName = ['dev', 'start', 'serve'].find(s => scripts[s]);
+  // nested apps (e.g. a web/ UI) prefer a plain server script over a dev watcher
+  const scriptName = (nested ? ['serve', 'start', 'dev'] : ['dev', 'start', 'serve']).find(s => scripts[s]);
   if (!scriptName) return { runnable: false, stacks, description: pkg.description };
 
   let detectedPorts = detectPortInFiles(dir);
   if (deps.vite && !detectedPorts.length) detectedPorts.push(5173);
   if (deps.next && !detectedPorts.length) detectedPorts.push(3000);
+  if (nested && !detectedPorts.length && scriptName === 'serve') detectedPorts.push(5178);
 
   return {
     runnable: true,
     stacks,
     description: pkg.description || null,
+    webUi: !!nested && nested.relSub === 'web',
     recipe: {
       type: 'node',
       cwd: dir,
@@ -470,15 +474,22 @@ export function scanProject(dir) {
     detectedPorts: []
   };
 
-  const detectors = [scanGo, scanNode, scanPython, scanStatic];
-  for (const det of detectors) {
-    try {
-      const r = det(dir);
-      if (!r) continue;
-      Object.assign(result, r);
-      break;
-    } catch (e) {
-      console.error(`[scanner] error di ${dir}:`, e.message);
+  const safeDetect = (det) => {
+    try { return det(dir) || null; } catch (e) { console.error(`[scanner] error di ${dir}:`, e.message); return null; }
+  };
+  const goR = safeDetect(scanGo);
+  const nodeR = safeDetect(scanNode);
+  const pyR = safeDetect(scanPython);
+  const staticR = safeDetect(scanStatic);
+
+  // Prefer a nested web/ Node app (the project's web UI, e.g. upwork-monitor/web).
+  // Otherwise keep the previous precedence: Go → Node → Python → static.
+  const chosen = (nodeR && nodeR.webUi) ? nodeR : (goR || nodeR || pyR || staticR);
+  if (chosen) {
+    Object.assign(result, chosen);
+    if (nodeR && nodeR.webUi && goR && goR.runnable) {
+      result.altRecipe = goR.recipe;
+      result.goEntry = goR.recipe.argv.slice(-1)[0];
     }
   }
 

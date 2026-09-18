@@ -119,6 +119,11 @@ function buildStartArgs(recipe, port) {
   return { argv, env };
 }
 
+function winShellFor(bin) {
+  // npm / npx are .cmd shims on Windows; spawn them through the shell
+  return process.platform === 'win32' && (bin === 'npm' || bin === 'npx');
+}
+
 let onSetupEnd = null;
 export function setOnSetupEnd(fn) {
   onSetupEnd = fn;
@@ -162,6 +167,7 @@ export function start(project, port, opts = {}) {
   const child = spawn(argv[0], argv.slice(1), {
     cwd: useRecipe.cwd,
     env: { ...process.env, ...env },
+    shell: winShellFor(argv[0]),
     detached: true,
     stdio: ['ignore', 'pipe', 'pipe']
   });
@@ -369,6 +375,7 @@ export function startSetup(project) {
     ]);
     const child = spawn(step.argv[0], step.argv.slice(1), {
       cwd: step.cwd || project.path,
+      shell: winShellFor(step.argv[0]),
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe']
     });
