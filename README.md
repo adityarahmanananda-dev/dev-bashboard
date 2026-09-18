@@ -6,212 +6,160 @@
 $_  DevBashboard
 ```
 
-Dashboard lokal untuk developer: scan folder project, deteksi **stack** dan **database**, atur **port anti-tabrakan**, lalu **start/stop aplikasi** — native maupun Docker Compose — langsung dari browser.
+A local dashboard for developers: scan project folders, detect **stack** and **database**, manage **collision-free ports**, then **start/stop applications** — native or Docker Compose — right from the browser.
 
-Semua berjalan di `127.0.0.1` (tidak terekspos ke jaringan), tanpa akun, tanpa cloud.
+Everything runs on `127.0.0.1` (not exposed to the network), no accounts, no cloud.
 
 ## Screenshot
 
-![UI demo (data dummy)](docs/screenshot.png)
+![UI demo (dummy data)](docs/screenshot.png)
 
-> Screenshot mockup UI dengan data dummy — bukan data riil.
+> Screenshot is a UI mockup with dummy data — not real data.
 
 ---
 
-## Fitur
+## Features
 
-### 📁 Scan folder bebas
-Klik path di kiri atas dashboard untuk memilih folder mana pun yang mau discan (browse atau ketik path manual). Bisa juga lewat CLI:
+### 📁 Scan any folder
+Click the path in the top-left of the dashboard to choose any folder to scan (browse or type a manual path). Also possible via CLI:
 
 ```bash
 dev-bashboard --root ~/Projects
 ```
 
-### 🔍 Deteksi stack otomatis
-Setiap project terdeteksi framework-nya, branch git, dan deskripsi dari README:
+### 🔍 Automatic stack detection
+Each project's framework, git branch, and README description are detected:
 
-| Bahasa/Framework | Cara deteksi |
+| Language/Framework | Detection method |
 |---|---|
-| Python (Flask, FastAPI, Django) | `app.py`, `manage.py`, import di source, `requirements.txt` |
-| Go | `go.mod` di root maupun nested (`backend/`, `server/`, dll.) |
+| Python (Flask, FastAPI, Django) | `app.py`, `manage.py`, imports in source, `requirements.txt` |
+| Go | `go.mod` at root or nested (`backend/`, `server/`, etc.) |
 | Node.js (Express, Electron, Next.js, Vite, React…) | `package.json` + dependencies |
-| Docker Compose | `docker-compose.yml` / `compose.yaml` → tombol **Start (Docker)** |
-| HTML/CSS/JS statis | `index.html` tanpa kode backend |
+| Docker Compose | `docker-compose.yml` / `compose.yaml` → **Start (Docker)** button |
+| Static HTML/CSS/JS | `index.html` without backend code |
 
-Project yang punya compose file mendapat tombol **▶ Start (Docker)** (`docker compose up -d --build`) plus tombol sekunder **⚡ Native** untuk jalan tanpa docker.
+Projects with a compose file get a **▶ Start (Docker)** button (`docker compose up -d --build`) plus a secondary **⚡ Native** button to run without Docker.
 
-### 🗄 Deteksi database
-Badge per project menampilkan engine **dan** hosting-nya:
+### 🗄 Database detection
+A badge per project shows the engine **and** its hosting:
 
-| Badge | Arti |
+| Badge | Meaning |
 |---|---|
-| `PostgreSQL · ☁️ Supabase` | DB online/cloud (host dikenali: Supabase, Neon, Atlas, RDS, Railway, dll.) |
-| `MySQL · 🐳 docker lokal` | Service DB didefinisikan di compose |
-| `PostgreSQL · 🖥️ lokal` | Koneksi ke localhost / host non-cloud |
-| `SQLite · 📄 file lokal` | File `*.db`/`*.sqlite` atau driver SQLite |
+| `PostgreSQL · ☁️ Supabase` | Online/cloud DB (recognized hosts: Supabase, Neon, Atlas, RDS, Railway, etc.) |
+| `MySQL · 🐳 docker local` | DB service defined in compose |
+| `PostgreSQL · 🖥️ local` | Connection to localhost / non-cloud host |
+| `SQLite · 📄 file local` | `*.db`/`*.sqlite` file or SQLite driver |
 
-Sumber deteksi: dependencies, `.env`, connection string di source code, `prisma/schema.prisma`, image service di compose.
+Detection sources: dependencies, `.env`, connection strings in source code, `prisma/schema.prisma`, compose service images.
 
-### 🔌 Manajemen port anti-tabrakan
-- Tombol **🎲 cari** mencarikan port kosong acak di rentang **20000–65535**
-- Port bawaan layanan/dev server (postgres `5432`, mysql `3306`, redis `6379`, node dev `3000`, vite `5173`, dll.) **ditolak keras** saat start
-- Port yang sudah dipakai proses lain ditolak dengan pesan siapa pemakainya:
+### 🔌 Collision-free port management
+- **🎲 find** button picks a random free port in the **20000–65535** range
+- Default service/dev-server ports (postgres `5432`, mysql `3306`, redis `6379`, node dev `3000`, vite `5173`, etc.) are **hard-rejected** at start
+- Ports already in use by another process are rejected with a message showing who owns them:
   > `Port 56002 sudah dipakai oleh python3 (pid 8805)`
-- Pilihan port per project diingat antar-restart (`data/state.json`)
-- Sidebar menampilkan semua port yang sedang listening beserta prosesnya
+- Per-project port choices are remembered across restarts (`data/state.json`)
+- The sidebar lists all currently listening ports with their processes
 
-### ⚙️ Start/stop yang rapi
-- Proses dikelola per **process group** → stop ikut mematikan reloader Flask, child binary `go run`, dan wrapper npm script
-- Status project tetap terlacak walau dashboard dimatikan lalu dijalankan lagi (proses native diadopsi via pgid, container docker dicek via `compose ps`)
-- Log realtime tiap project via WebSocket
+### ⚙️ Clean start/stop
+- Processes are managed per **process group** → stopping also kills Flask reloaders, `go run` children, and npm wrapper scripts
+- Project status survives a dashboard restart (native processes are adopted via pgid, Docker containers checked via `compose ps`)
+- Realtime per-project logs via WebSocket
 
-### 🐳 Dukungan Docker Compose
-- Start = `docker compose up -d -‑build` dengan nama project unik (`-p`)
-- **Override port host otomatis**: ganti port di dashboard → DevBashboard membuat override file dengan tag `!override` di `data/compose-overrides/` (butuh Docker Compose v2.24+), sehingga file asli project tidak disentuh
+### 🐳 Docker Compose support
+- Start = `docker compose up -d --build` with a unique project name (`-p`)
+- **Automatic host-port override**: change the port in the dashboard → DevBashboard writes an override file with the `!override` tag in `data/compose-overrides/` (requires Docker Compose v2.24+), so the original project files are never touched
 - Stop = `docker compose down`
-- File `.env` project dimuat otomatis saat start native — `DATABASE_URL` Supabase dsb. ikut terbawa
+- The project's `.env` is loaded automatically on native start — `DATABASE_URL` (Supabase etc.) is carried over
 
-### 📦 Setup dependencies multi-stack
-Tombol **🛠 Setup** tersedia untuk semua stack yang punya manifest dikenal:
+### 📦 Multi-stack dependency setup
+The **🛠 Setup** button is available for every stack with a known manifest:
 
-| Stack | Manifest | Langkah setup | Cek "siap" |
+| Stack | Manifest | Setup step | "Ready" check |
 |---|---|---|---|
-| Python/pip | requirements.txt / pyproject.toml | buat venv `<nama>.venv` → `pip install` | `pip install --dry-run` |
-| Node/npm | package.json | `npm install` | node_modules segar vs lockfile + penanda sukses setup |
-| Go modules | go.mod (termasuk nested `backend/` dll.) | `go mod download` | `go mod verify` |
-| Java/Maven | pom.xml | `mvn dependency:resolve` (atau ./mvnw) | penanda sukses setup |
-| Java/Gradle | build.gradle(.kts) / settings.gradle(.kts) | `gradle dependencies` (atau ./gradlew) | penanda sukses setup |
-| C++/Conan | conanfile.txt / conanfile.py | `conan install --build=missing` | penanda sukses setup |
-| C++/vcpkg | vcpkg.json | `vcpkg install` ($VCPKG_ROOT atau PATH) | penanda sukses setup |
+| Python/pip | requirements.txt / pyproject.toml | create venv `<name>.venv` → `pip install` | `pip install --dry-run` |
+| Node/npm | package.json | `npm install` | fresh node_modules vs lockfile + setup success marker |
+| Go modules | go.mod (incl. nested `backend/` etc.) | `go mod download` | `go mod verify` |
+| Java/Maven | pom.xml | `mvn dependency:resolve` (or ./mvnw) | setup success marker |
+| Java/Gradle | build.gradle(.kts) / settings.gradle(.kts) | `gradle dependencies` (or ./gradlew) | setup success marker |
+| C++/Conan | conanfile.txt / conanfile.py | `conan install --build=missing` | setup success marker |
+| C++/vcpkg | vcpkg.json | `vcpkg install` ($VCPKG_ROOT or PATH) | setup success marker |
 
-- Manifest dicari di root project maupun subfolder standar (backend/server/src/client/frontend/app)
-- Tool yang tidak terinstal menghasilkan pesan error actionable, bukan crash
-- Penanda sukses setup disimpan di `data/setup-marks/` (di luar repo project); otomatis gugur bila manifest berubah setelahnya
-
----
-
-### 💼 Tab Upwork
-Tab **💼 Upwork** menghubungkan ke tool [upwork-monitor](https://github.com/adityarahmanananda-dev/upwork-monitor) — monitor lowongan Upwork end-to-end:
-
-- **🔍 Scan Lowongan** — fetch feed Upwork lewat Chrome kamu yang sudah login (lolos Cloudflare, port debug `9222`), **async dengan progress per halaman**, lalu match dengan profil skill.
-- **↺ Match hasil terakhir** — pakai hasil fetch terakhir tanpa membuka Chrome (instan).
-- **📊 Sortir** — `Gabungan` (cuan×40% + peluang×60%), `💰 Paling Cuan`, `🎯 Peluang Dapat`. Badge per kartu: estimasi nilai, % peluang, estimasi pelamar.
-- **✍️ Proposal** — draf cover letter + **panel saran bid**: metode bayar (milestone/project), jumlah bid (95% budget), fee 10%, yang kamu terima, durasi, dan *schedule rate increase* (frekuensi + %) untuk job hourly. Proposal AI (opencode) **di-cache** per job — klik ulang memakai yang sudah ada (tombol **↻ Buat Baru** untuk regenerate).
-- **🤖 Prompt Portfolio** — prompt AI-agent untuk membuat project demo pembuktian (`project-portfolio/`) yang sesuai requirement lowongan.
-
-Folder upwork-monitor dikenali otomatis di `~/Projects/upwork-monitor` (ubah via env `UPWORK_MONITOR_DIR` atau tombol **ubah** di panel). Hasil disimpan ke `output/` upwork-monitor.
+- Manifests are searched at the project root and in standard subfolders (backend/server/src/client/frontend/app)
+- Missing tools produce an actionable error message, not a crash
+- Setup success markers are stored in `data/setup-marks/` (outside the project repo) and auto-invalidated if the manifest changes afterwards
 
 ---
 
-## Cara Kerja
+## Installation
 
-```
-Browser (127.0.0.1:<port>)
-   │  WebSocket (log realtime, status)
-   ▼
-server/index.js  (Express + ws)
-   ├─ /api/*            scanner → runner → docker → ports → state
-   └─ /api/upwork/*     upwork.js → spawn upwork-monitor (Go CLI)
-                              ├─ scan (fetch via Chrome CDP :9222 → match → skor)
-                              ├─ jobs / proposal / portfolio-prompt
-                              └─ task polling (progres scan, hasil AI async)
-```
-
-- **Tab Project**: `scanner.js` deteksi stack & database → `runner.js` kelola
-  lifecycle proses (native/docker, pgid, adopsi, persist) → port anti-tabrakan
-  lewat `ports.js` → UI vanilla JS di `public/` di-refresh via REST + WebSocket.
-- **Tab Upwork**: `server/upwork.js` memanggil binary Go `upwork-monitor`
-  (`run`/`jobs`/`proposal`/`portfolio-prompt`). Scan & proposal AI dijalankan
-  **async** (task + polling) supaya UI tidak menggantung. Proposal & prompt
-  disimpan ke `output/` upwork-monitor (`proposals.json` = index cache).
-
-## Stack Teknologi
-
-| Lapisan | Teknologi |
-|---|---|
-| Backend | **Node.js ≥18**, Express, ws (WebSocket) |
-| Frontend | **Vanilla JS** (`public/`), tanpa build step — HTML/CSS/JS polos |
-| Integrasi Upwork | Binary Go [`upwork-monitor`](https://github.com/adityarahmanananda-dev/upwork-monitor) + [`upwork-feed-fetcher`](https://github.com/doonfrs/upwork-feed-fetcher) (Chrome DevTools Protocol) |
-| AI (opsional) | `opencode` CLI (proposal cover letter) |
-| Persistensi | JSON di `data/` (state, ports, proses) + `output/` upwork-monitor |
-| Lainnya | Docker Compose (opsional), Chrome (untuk fetch Upwork) |
-
-## Instalasi
-
-Prasyarat:
+Prerequisites:
 - **Node.js ≥ 18**
-- **Docker + Docker Compose v2.24+** *(opsional, hanya untuk fitur compose)*
+- **Docker + Docker Compose v2.24+** *(optional, only for compose features)*
 
 ```bash
 git clone git@github.com:adityarahmanananda-dev/dev-bashboard.git
 cd dev-bashboard
 npm install
-npm link          # daftarkan perintah global "dev-bashboard"
+npm link          # register the global "dev-bashboard" command
 ```
 
-> Tanpa `npm link` juga bisa: `npm start` lalu buka `http://127.0.0.1:7333`.
+> Without `npm link` you can also run `npm start` and open `http://127.0.0.1:7333`.
 
-## Cara pakai
+## Usage
 
 ```bash
-dev-bashboard                     # start + buka browser otomatis
-dev-bashboard -p 8080             # port khusus untuk dashboard
-dev-bashboard -r ~/kode           # set folder awal yang discan
-dev-bashboard --no-open           # tanpa auto-buka browser
-dev-bashboard --help              # bantuan
+dev-bashboard                     # start + auto-open browser
+dev-bashboard -p 8080             # specific dashboard port
+dev-bashboard -r ~/kode           # initial scan folder
+dev-bashboard --no-open           # no auto-open browser
+dev-bashboard --help              # help
 dev-bashboard --version
 ```
 
-Browser akan terbuka otomatis ke `http://127.0.0.1:<port>` (via `xdg-open`). Tekan `Ctrl+C` untuk menghentikan dashboard; project yang sedang berjalan **tidak** ikut mati dan akan diadopsi kembali saat dashboard dijalankan lagi.
+The browser opens automatically to `http://127.0.0.1:<port>` (via `xdg-open`). Press `Ctrl+C` to stop the dashboard; running projects **do not** stop and are re-adopted next time.
 
-## Cara kerja override port
+## How port override works
 
-| Stack | Mekanisme override |
+| Stack | Override mechanism |
 |---|---|
-| Docker Compose | Override file compose (`ports: !override`) |
-| Flask yang baca env | env `PORT` |
-| Flask port hardcoded | `flask --app <entry> run --port <N>` |
+| Docker Compose | Compose override file (`ports: !override`) |
+| Flask reading env | env `PORT` |
+| Flask with hardcoded port | `flask --app <entry> run --port <N>` |
 | Go (env `ADDR`/`PORT`) | env `ADDR=:<port>` |
 | Node (npm dev/start) | env `PORT` |
 | Static HTML | `python3 -m http.server <port> --bind 127.0.0.1` |
 
-Kalau mekanisme tidak dikenali (mis. port hardcoded tanpa flask CLI), kartu project menampilkan peringatan bahwa port mengikuti kode.
+If the mechanism isn't recognized (e.g. hardcoded port without Flask CLI), the project card shows a warning that the port follows the code.
 
-## Arsitektur
+## Architecture
 
 ```
 dev-bashboard/
 ├── bin/dev-bashboard.js   CLI launcher (arg parsing, xdg-open)
 ├── server/
 │   ├── index.js           HTTP server + REST API + WebSocket
-│   ├── scanner.js         Deteksi stack, database, start recipe
-│   ├── runner.js          Lifecycle proses (spawn/pgid/adopsi/persist)
-│   ├── docker.js          Helper compose: up/status/down/log/override
-│   ├── ports.js           Cek listening, reserved list, sugesti port
-│   ├── upwork.js          Integrasi upwork-monitor: scan/proposal/prompt/task
-│   └── state.js           Persistensi state (folder scan, pilihan port)
-├── public/                Frontend vanilla JS (tanpa build step)
-└── data/                  Runtime only (di-gitignore): log, state, overrides
+│   ├── scanner.js         Stack/database detection, start recipe
+│   ├── runner.js          Process lifecycle (spawn/pgid/adopt/persist)
+│   ├── docker.js          Compose helpers: up/status/down/log/override
+│   ├── ports.js           Listening check, reserved list, port suggestions
+│   └── state.js           State persistence (scan folder, port choices)
+├── public/                Vanilla JS frontend (no build step)
+└── data/                  Runtime only (git-ignored): logs, state, overrides
 ```
 
-API ringkas:
+Concise API:
 
-| Endpoint | Fungsi |
+| Endpoint | Function |
 |---|---|
-| `GET /api/projects` | Scan + status semua project |
+| `GET /api/projects` | Scan + status of all projects |
 | `POST /api/projects/:name/start` | Start `{ port, native? }` |
 | `POST /api/projects/:name/stop` | Stop / compose down |
-| `GET /api/projects/:name/logs` | Ambil log |
-| `GET /api/ports/used` · `POST /api/ports/suggest` | Info & sugesti port |
+| `GET /api/projects/:name/logs` | Fetch logs |
+| `GET /api/ports/used` · `POST /api/ports/suggest` | Port info & suggestions |
 | `GET /api/browse` · `POST /api/scan-root` | Folder picker |
-| `GET /api/upwork/status` | Status folder upwork-monitor, bin, opencode |
-| `POST /api/upwork/scan` | Fetch (`{fetch:true}` → taskId async) atau match (`{fetch:false}`) |
-| `POST /api/upwork/proposal` | Draf proposal `{ job, ai, force }` (cache-aware) |
-| `POST /api/upwork/portfolio-prompt` | Prompt AI-agent `{ job }` |
-| `GET /api/upwork/task/:id` | Status task (progress scan / hasil AI) |
 
-## Catatan
+## Notes
 
-- Server bind di `127.0.0.1` saja dan **tanpa autentikasi** — memang untuk pemakaian lokal.
-- `data/` tidak ikut repo; PC baru mulai dengan state bersih.
-- Project tanpa cara start yang dikenali (catatan, library) tetap muncul sebagai referensi, hanya tanpa tombol start.
+- The server binds to `127.0.0.1` only and has **no authentication** — it is intended for local use.
+- `data/` is not in the repo; a new PC starts with a clean state.
+- Projects with no recognized start method (notes, libraries) still appear as references, just without a start button.
